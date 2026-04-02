@@ -10,7 +10,7 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 |-------|-------------|--------|-------|-------|
 | 0 | Scaffold | **complete** | 7 | Directory structure, type stubs, module stubs, schema, test infra, fixtures, placeholder tests |
 | 1 | Pure Foundation | **complete** | 6 | types, validate, config, brief, render, templates + unit tests |
-| 2 | Git/IO Layer | not started | — | git, worktree, record, log + integration tests |
+| 2 | Git/IO Layer | **complete** | 7 | git, worktree, record, log + integration tests |
 | 3 | Profiles + Runner | not started | — | profiles, adapters, runner, tmux + profile/adapter tests |
 | 4 | Orchestration + CLI | not started | — | scheduler, task_executor, review, CLI, help, completions + E2E tests |
 | 5 | Tools + Prompts + Pi Wrapper | not started | — | pi extensions, MCP server, prompts, templates, pi wrapper |
@@ -118,10 +118,25 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 
 **Review findings to address:** (none)
 
-**Started:** —
-**Completed:** —
-**Lessons learned:** —
-**Spec adjustments:** —
+**Started:** 2026-04-02
+**Completed:** 2026-04-02
+
+**Implementation summary (python3 -m pytest tests/ --tb=short: 288 passed, 133 skipped):**
+- `git.py`: subprocess wrapper + repo status helpers (branch/HEAD, dirty status, file parsing).
+- `log.py`: JSONL debug logger with best-effort writes and status snapshot helper.
+- `record.py`: record CRUD + atomic writes, query helpers, phase transitions/event tracking, usage aggregation.
+- `worktree.py`: task/workflow worktree lifecycle, commit/amend helpers, merge/rebase handling with conflict reporting.
+- Integration tests: `test_git.py`, `test_record.py`, `test_worktree.py` now run with zero Phase 2 skips.
+
+**Intentional deviations from spec:**
+1. **None.** Phase 2 matches the spec; no deviations were required.
+
+**Lessons learned:**
+- Worktree cleanup and branch removal must be idempotent to keep repeated runs safe in temp repos.
+- Rebase-first merge flows need explicit conflict reporting to keep the caller in control of recovery steps.
+- Excluding `docs/workflows/` from task commits prevents record churn while task worktrees iterate.
+
+**Spec adjustments:** None needed.
 
 ---
 
