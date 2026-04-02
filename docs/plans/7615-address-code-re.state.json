@@ -1,0 +1,100 @@
+{
+  "plan": {
+    "goal": "Address code review findings for Phase 1: fix validation gaps, override handling bugs, schema strictness, and misleading comments",
+    "context": "This is the `wf` workflow orchestrator project. Phase 1 implemented pure foundation modules (types.py, config.py, brief.py, etc.). A code review found 7 findings; we're addressing all except #6 (brief path normalization/rationale comments — already tracked in implementation-tracker.md, blocked on Phase 2/5 dependencies).\n\nKey files:\n- `wflib/types.py`: Dataclasses, serialization/deserialization, `validate_schema()`, `plan_from_json()`, `record_from_json()`\n- `wflib/config.py`: Config loading, merging, resolution, `parse_overrides()`, `apply_cli_overrides()`, `resolve_config()`\n- `schemas/workflow.schema.json`: JSON Schema with `additionalProperties: false` on sub-schemas\n- `tests/unit/test_types.py` and `tests/unit/test_config.py`: Existing test suites\n\nThe spec says (line 188): \"A thin validation layer checks required keys exist, values have the right types, and arrays meet minimum lengths before construction.\" The spec also says (line 745): \"Sub-schemas DO use additionalProperties: false because they are tool registration contracts — strict validation catches malformed LLM tool calls.\" The root WorkflowRecord intentionally does NOT use additionalProperties: false for forward-compat.",
+    "tasks": [
+      {
+        "id": "task-1",
+        "title": "Add additionalProperties enforcement and type strictness to validate_schema",
+        "goal": "Make `validate_schema` enforce `additionalProperties: false` (reject extra keys) and ensure all type checks work correctly. This addresses findings #1 (partially) and #2. When a schema object has `additionalProperties: false`, any keys in the data not listed in `properties` should produce an error. When `additionalProperties` is a schema (like `{\"type\": \"string\"}`), validate values against that schema. Also add `plan_from_json()` integration: it should call `validate_schema(data, 'plan')` before deserializing, so malformed LLM tool-call payloads are caught. `record_from_json()` should NOT be changed — it intentionally tolerates unknown top-level keys for forward-compat.",
+        "files": [
+          "wflib/types.py",
+          "schemas/workflow.schema.json",
+          "tests/unit/test_types.py"
+        ],
+        "constraints": [
+          "Only enforce additionalProperties on objects where the schema explicitly sets it — don't assume it",
+          "When additionalProperties is false, report each extra key as a separate error with its path",
+          "When additionalProperties is a schema (e.g. {\"type\": \"string\"}), validate values against that schema",
+          "plan_from_json() should call validate_schema(data, 'plan') and raise ValueError with joined errors if validation fails, BEFORE calling _dict_to_dataclass",
+          "record_from_json() must NOT be changed — it already handles forward-compat by filtering to known fields",
+          "Do not add type checking to _dict_to_dataclass/_deserialize_value — keep the validation in validate_schema"
+        ],
+        "acceptance": [
+          "validate_schema(data, 'plan') returns errors for extra keys when additionalProperties is false",
+          "validate_schema(data, 'plan') returns errors for wrong-typed values (e.g. integer where string expected)",
+          "validate_schema with additionalProperties as a schema (e.g. ImplementationRecord.tasks, ImplementationRecord.activeResources) validates values correctly",
+          "plan_from_json raises ValueError when given a payload with extra keys or wrong types",
+          "record_from_json still accepts records with unknown top-level keys (forward-compat preserved)",
+          "All existing tests in tests/unit/test_types.py still pass",
+          "New tests cover: extra keys rejected, wrong types rejected, additionalProperties-as-schema validated, plan_from_json strict validation"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "task-2",
+        "title": "Fix override handling: coerce types, validate CLI overrides, enforce format",
+        "goal": "Fix findings #3, #4, and #5 in config.py. (1) `parse_overrides()` should enforce `section.key` format and normalize dash-case keys to underscore using the existing `_DASH_TO_UNDERSCORE` map. (2) `resolve_config()` should coerce override string values to native types using `_coerce_string_value` before validation. (3) `apply_cli_overrides()` should validate values using the same `_VALIDATION_RULES` registry before applying them, raising ConfigError on invalid values.",
+        "files": [
+          "wflib/config.py",
+          "tests/unit/test_config.py"
+        ],
+        "constraints": [
+          "parse_overrides() must require exactly one dot in the key (section.key format) — raise ValueError for non-dotted keys with a clear message like \"Override key must be in 'section.key' format: 'concurrency'\"",
+          "parse_overrides() must normalize dash-case subkeys using _DASH_TO_UNDERSCORE (e.g. 'execute.auto-review' -> 'execute.auto_review')",
+          "In resolve_config(), apply _coerce_string_value to each leaf value in overrides_dict before calling _validate_values, iterating the nested dict structure (section -> key -> string value)",
+          "apply_cli_overrides() must validate each override value using _VALIDATION_RULES before applying it, raising ConfigError on invalid values (e.g. concurrency=0, concurrency=-1)",
+          "The existing test_parse_overrides test 'test_simple_key_value' expects parse_overrides(['concurrency=8']) to return {'concurrency': '8'} — this test must be UPDATED to expect a ValueError since non-dotted keys are now rejected"
+        ],
+        "acceptance": [
+          "parse_overrides(['concurrency=8']) raises ValueError mentioning 'section.key' format",
+          "parse_overrides(['execute.auto-review=false']) returns {'execute': {'auto_review': 'false'}} (dash normalized)",
+          "resolve_config(cwd, overrides=['execute.concurrency=8']) succeeds and returns config with concurrency=8",
+          "resolve_config(cwd, overrides=['ui.tmux=false']) succeeds and returns config with tmux=False",
+          "resolve_config(cwd, overrides=['execute.concurrency=abc']) raises ConfigError",
+          "apply_cli_overrides(config, concurrency=0) raises ConfigError",
+          "apply_cli_overrides(config, concurrency=-1) raises ConfigError",
+          "apply_cli_overrides(config, concurrency=4) succeeds",
+          "All existing tests pass (with the one test updated for the new format enforcement)",
+          "New tests cover: non-dotted key rejection, dash normalization, numeric/bool override coercion, CLI validation"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "task-3",
+        "title": "Fix misleading dict key comment in _deserialize_value",
+        "goal": "Fix finding #7: the comment in `_deserialize_value` at the dict handling section says 'Convert camelCase keys back to snake_case for dict fields that use string keys matching Python identifiers' but the code does `py_key = k` (keeps as-is). Fix the comment to accurately describe the behavior: dict keys are data keys (task IDs, alias names, profile names) and are preserved unchanged — only dataclass field names go through camelCase/snake_case conversion.",
+        "files": [
+          "wflib/types.py"
+        ],
+        "constraints": [
+          "Only change the comment, not the code behavior — dict keys staying as-is is correct",
+          "Make the comment explain WHY keys stay as-is (they're data keys, not field names)"
+        ],
+        "acceptance": [
+          "The comment accurately describes the code's behavior",
+          "No code behavior changes",
+          "All existing tests still pass"
+        ],
+        "dependsOn": []
+      }
+    ]
+  },
+  "planId": "7615",
+  "statuses": {
+    "task-1": "pending",
+    "task-2": "pending",
+    "task-3": "pending"
+  },
+  "results": {},
+  "planningUsage": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "cost": 0,
+    "turns": 0
+  },
+  "planningModel": "nvinf-anthropic/aws/anthropic/bedrock-claude-opus-4-6",
+  "planFile": "docs/plans/7615-address-code-re.md"
+}
