@@ -1,0 +1,612 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wf.dev/schemas/workflow.schema.json",
+  "title": "Workflow Record",
+  "description": "Complete workflow record file structure for wf. Single canonical source of truth per workflow, lives at docs/workflows/<name>.json.",
+  "type": "object",
+  "properties": {
+    "workflow": { "$ref": "#/$defs/WorkflowMeta" },
+    "brainstorm": {
+      "oneOf": [
+        { "$ref": "#/$defs/BrainstormRecord" },
+        { "type": "null" }
+      ]
+    },
+    "plan": {
+      "oneOf": [
+        { "$ref": "#/$defs/PlanRecord" },
+        { "type": "null" }
+      ]
+    },
+    "implementation": {
+      "oneOf": [
+        { "$ref": "#/$defs/ImplementationRecord" },
+        { "type": "null" }
+      ]
+    },
+    "reviews": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ReviewRecord" }
+    },
+    "close": {
+      "oneOf": [
+        { "$ref": "#/$defs/CloseRecord" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "required": ["workflow"],
+  "additionalProperties": false,
+  "$defs": {
+    "Task": {
+      "type": "object",
+      "description": "A single unit of work within a plan.",
+      "properties": {
+        "id": { "type": "string", "description": "Task identifier, e.g. \"task-1\"" },
+        "title": { "type": "string", "description": "Short descriptive title" },
+        "goal": { "type": "string", "description": "Desired outcome" },
+        "files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Starting file hints"
+        },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Architectural decisions as facts"
+        },
+        "acceptance": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Testable completion criteria"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Task IDs this task depends on (empty = independent)"
+        },
+        "skills": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "null" }
+          ],
+          "description": "Skill name hints (optional)"
+        },
+        "model": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Model override for this task"
+        }
+      },
+      "required": ["id", "title", "goal", "files", "constraints", "acceptance", "dependsOn"],
+      "additionalProperties": false
+    },
+    "Plan": {
+      "type": "object",
+      "description": "A plan submitted via the submit_plan tool. Used by harness wrappers for tool registration.",
+      "properties": {
+        "goal": { "type": "string", "description": "One-sentence summary" },
+        "context": { "type": "string", "description": "Architectural context shared across tasks" },
+        "defaultModel": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Default model for all tasks"
+        },
+        "tasks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Task" },
+          "minItems": 1,
+          "description": "At least one task"
+        }
+      },
+      "required": ["goal", "context", "tasks"],
+      "additionalProperties": false
+    },
+    "DesignDecision": {
+      "type": "object",
+      "description": "A key design choice made during brainstorming.",
+      "properties": {
+        "decision": { "type": "string", "description": "What was decided" },
+        "rationale": { "type": "string", "description": "Why" }
+      },
+      "required": ["decision", "rationale"],
+      "additionalProperties": false
+    },
+    "Brainstorm": {
+      "type": "object",
+      "description": "Brainstorm output submitted via the record_brainstorm tool. Used by harness wrappers for tool registration.",
+      "properties": {
+        "motivation": { "type": "string", "description": "Problem statement - what and why" },
+        "solution": { "type": "string", "description": "High-level approach" },
+        "designDecisions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DesignDecision" },
+          "description": "Key choices made"
+        }
+      },
+      "required": ["motivation", "solution", "designDecisions"],
+      "additionalProperties": false
+    },
+    "ReportResult": {
+      "type": "object",
+      "description": "Result reported by an implementation subagent via the report_result tool.",
+      "properties": {
+        "summary": { "type": "string", "description": "What was accomplished (1-2 sentences)" },
+        "notes": { "type": "string", "description": "Difficulties, surprises, things caller should know. Empty string if nothing." }
+      },
+      "required": ["summary", "notes"],
+      "additionalProperties": false
+    },
+    "Usage": {
+      "type": "object",
+      "description": "Token usage and cost tracking. Same shape everywhere - brainstorm, planning, each task, each review.",
+      "properties": {
+        "model": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Harness-reported model string, NOT normalized"
+        },
+        "input": { "type": "integer", "description": "Input tokens", "default": 0 },
+        "output": { "type": "integer", "description": "Output tokens", "default": 0 },
+        "cacheRead": { "type": "integer", "description": "Cache read tokens", "default": 0 },
+        "cacheWrite": { "type": "integer", "description": "Cache write tokens", "default": 0 },
+        "cost": { "type": "number", "description": "Cost in dollars", "default": 0.0 },
+        "turns": { "type": "integer", "description": "Number of conversation turns", "default": 0 }
+      },
+      "additionalProperties": false
+    },
+    "TaskStatus": {
+      "type": "string",
+      "description": "Execution status of a task.",
+      "enum": ["pending", "running", "done", "failed", "skipped"]
+    },
+    "TaskResult": {
+      "type": "object",
+      "description": "Execution result for a single task.",
+      "properties": {
+        "status": { "$ref": "#/$defs/TaskStatus" },
+        "startedAt": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "ISO timestamp when task started"
+        },
+        "completedAt": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "ISO timestamp when task completed"
+        },
+        "exitCode": {
+          "oneOf": [
+            { "type": "integer" },
+            { "type": "null" }
+          ],
+          "description": "Process exit code"
+        },
+        "brief": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Full assembled prompt sent to subagent"
+        },
+        "summary": { "type": "string", "description": "From report_result tool call (or fallback)", "default": "" },
+        "filesChanged": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "From git, not agent-reported"
+        },
+        "diffStat": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "From git diff --stat in task worktree"
+        },
+        "notes": { "type": "string", "description": "From report_result tool call (or empty)", "default": "" },
+        "error": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Full error text, never truncated"
+        },
+        "worktreePath": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Where the task worktree was/is"
+        },
+        "worktreePreserved": { "type": "boolean", "description": "True if worktree kept for inspection", "default": false },
+        "sessionFile": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Path to preserved session on failure"
+        },
+        "usage": { "$ref": "#/$defs/Usage" }
+      },
+      "required": ["status"],
+      "additionalProperties": false
+    },
+    "ImplementationEvent": {
+      "type": "object",
+      "description": "Lightweight operational timeline event.",
+      "properties": {
+        "t": { "type": "string", "description": "ISO timestamp" },
+        "event": {
+          "type": "string",
+          "description": "Event type",
+          "enum": [
+            "taskStart", "taskComplete",
+            "mergeStart", "mergeComplete", "mergeFailed",
+            "mergeResolveStart", "mergeResolveComplete", "mergeResolveFailed",
+            "worktreeCleanup", "skipDependents",
+            "crashRecovery", "error"
+          ]
+        },
+        "task": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Task ID this event relates to"
+        },
+        "detail": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Extra context (worktree path, conflict files, etc.)"
+        }
+      },
+      "required": ["t", "event"],
+      "additionalProperties": false
+    },
+    "ImplementationRecord": {
+      "type": "object",
+      "description": "Record of a plan's execution (implementation phase or fixup implementation).",
+      "properties": {
+        "startedAt": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "ISO timestamp when implementation started"
+        },
+        "completedAt": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "ISO timestamp when implementation completed"
+        },
+        "baseCommit": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Git commit implementation branched from"
+        },
+        "activeResources": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "task_id -> worktree_path for live worktrees"
+        },
+        "events": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ImplementationEvent" },
+          "description": "Lightweight operational timeline"
+        },
+        "tasks": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/TaskResult" },
+          "description": "task_id -> TaskResult mapping"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReviewRecord": {
+      "type": "object",
+      "description": "A single review cycle. Reviews is an array - each cycle (review + optional fixup) is an entry.",
+      "properties": {
+        "recordedAt": { "type": "string", "description": "ISO timestamp when review was recorded" },
+        "baseCommit": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Git commit the review was performed against"
+        },
+        "reviewText": { "type": "string", "description": "Full review text from the reviewer agent" },
+        "findingsActionable": { "type": "boolean", "description": "Whether the review found actionable issues" },
+        "usage": { "$ref": "#/$defs/Usage" },
+        "fixupPlan": {
+          "oneOf": [
+            { "$ref": "#/$defs/Plan" },
+            { "type": "null" }
+          ],
+          "description": "Plan to address review findings, if any"
+        },
+        "fixupImplementation": {
+          "oneOf": [
+            { "$ref": "#/$defs/ImplementationRecord" },
+            { "type": "null" }
+          ],
+          "description": "Implementation of the fixup plan, if any"
+        }
+      },
+      "required": ["recordedAt", "baseCommit", "reviewText", "findingsActionable", "usage"],
+      "additionalProperties": false
+    },
+    "WorkflowStatus": {
+      "type": "string",
+      "description": "Current phase of the workflow.",
+      "enum": ["init", "brainstorming", "planning", "implementing", "reviewing", "closing", "done", "failed"]
+    },
+    "AutomationLevel": {
+      "type": "string",
+      "description": "Level of human involvement for a phase.",
+      "enum": ["interactive", "supervised", "automatic"]
+    },
+    "ModelConfig": {
+      "type": "object",
+      "description": "Per-phase model preferences.",
+      "properties": {
+        "brainstorm": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "plan": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "implement": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Default for tasks; individual tasks can still override"
+        },
+        "review": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "fixup": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "close": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "AutomationConfig": {
+      "type": "object",
+      "description": "Per-phase automation levels.",
+      "properties": {
+        "brainstorm": { "$ref": "#/$defs/AutomationLevel", "default": "interactive" },
+        "plan": { "$ref": "#/$defs/AutomationLevel", "default": "interactive" },
+        "implement": { "$ref": "#/$defs/AutomationLevel", "default": "supervised" },
+        "review": { "$ref": "#/$defs/AutomationLevel", "default": "automatic" },
+        "close": { "$ref": "#/$defs/AutomationLevel", "default": "automatic" }
+      },
+      "additionalProperties": false
+    },
+    "ExecuteConfig": {
+      "type": "object",
+      "description": "Execution settings.",
+      "properties": {
+        "concurrency": { "type": "integer", "description": "Maximum parallel tasks", "default": 4 },
+        "worktrees": { "type": "boolean", "description": "Use git worktrees for task isolation", "default": true },
+        "autoReview": { "type": "boolean", "description": "Automatically run review after implementation", "default": true }
+      },
+      "additionalProperties": false
+    },
+    "UIConfig": {
+      "type": "object",
+      "description": "Runtime/UI settings.",
+      "properties": {
+        "autoClose": { "type": "integer", "description": "Seconds before auto-closing tmux panes; 0 = disabled", "default": 30 },
+        "tmux": { "type": "boolean", "description": "Use tmux for interactive/supervised sessions", "default": true }
+      },
+      "additionalProperties": false
+    },
+    "AgentConfig": {
+      "type": "object",
+      "description": "Agent runner configuration.",
+      "properties": {
+        "profile": { "type": "string", "description": "Runner profile name (\"pi\", \"claude-code\", \"mock\")", "default": "pi" },
+        "cmd": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Override binary path (default: derived from profile)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModelsConfig": {
+      "type": "object",
+      "description": "Model name aliases and per-profile harness mappings.",
+      "properties": {
+        "aliases": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "User-defined shorthands → canonical names"
+        },
+        "profiles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "null" }
+              ]
+            }
+          },
+          "description": "Per-profile canonical → harness-specific overrides"
+        }
+      },
+      "additionalProperties": false
+    },
+    "WorkflowConfig": {
+      "type": "object",
+      "description": "Fully-resolved configuration snapshot. Captured at wf init time by merging: baked-in defaults < user config < project config < init flags. Stored in the record.",
+      "properties": {
+        "model": { "$ref": "#/$defs/ModelConfig" },
+        "automation": { "$ref": "#/$defs/AutomationConfig" },
+        "execute": { "$ref": "#/$defs/ExecuteConfig" },
+        "ui": { "$ref": "#/$defs/UIConfig" },
+        "agent": { "$ref": "#/$defs/AgentConfig" },
+        "models": { "$ref": "#/$defs/ModelsConfig" }
+      },
+      "additionalProperties": false
+    },
+    "WorkflowMeta": {
+      "type": "object",
+      "description": "Top-level workflow metadata.",
+      "properties": {
+        "id": { "type": "string", "description": "Short unique identifier, e.g. \"a1b2\"" },
+        "name": { "type": "string", "description": "Human-readable workflow name" },
+        "createdAt": { "type": "string", "description": "ISO timestamp when workflow was created" },
+        "status": { "$ref": "#/$defs/WorkflowStatus" },
+        "project": { "type": "string", "description": "Absolute path to the project directory" },
+        "sourceBranch": { "type": "string", "description": "Branch the workflow was created from" },
+        "sourceCommit": { "type": "string", "description": "Commit SHA the workflow was created from" },
+        "worktree": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Path to workflow worktree, or null for bare mode (main repo)"
+        },
+        "config": { "$ref": "#/$defs/WorkflowConfig" }
+      },
+      "required": ["id", "name", "createdAt", "status", "project", "sourceBranch", "sourceCommit"],
+      "additionalProperties": false
+    },
+    "BrainstormRecord": {
+      "type": "object",
+      "description": "Recorded brainstorm phase output.",
+      "properties": {
+        "recordedAt": { "type": "string", "description": "ISO timestamp when brainstorm was recorded" },
+        "motivation": { "type": "string", "description": "Problem statement - what and why" },
+        "solution": { "type": "string", "description": "High-level approach" },
+        "designDecisions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DesignDecision" },
+          "description": "Key choices made"
+        },
+        "usage": { "$ref": "#/$defs/Usage" }
+      },
+      "required": ["recordedAt", "motivation", "solution", "designDecisions", "usage"],
+      "additionalProperties": false
+    },
+    "PlanRecord": {
+      "type": "object",
+      "description": "Recorded plan phase output.",
+      "properties": {
+        "recordedAt": { "type": "string", "description": "ISO timestamp when plan was recorded" },
+        "goal": { "type": "string", "description": "One-sentence summary" },
+        "context": { "type": "string", "description": "Architectural context shared across tasks" },
+        "defaultModel": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Default model for all tasks"
+        },
+        "tasks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Task" },
+          "minItems": 1,
+          "description": "At least one task"
+        },
+        "usage": { "$ref": "#/$defs/Usage" }
+      },
+      "required": ["recordedAt", "goal", "context", "tasks", "usage"],
+      "additionalProperties": false
+    },
+    "CloseRecord": {
+      "type": "object",
+      "description": "Recorded close phase output.",
+      "properties": {
+        "recordedAt": { "type": "string", "description": "ISO timestamp when workflow was closed" },
+        "mergeResult": { "type": "string", "description": "Merge outcome: \"clean\", \"conflicted\", or \"failed\"" },
+        "finalCommit": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Final merge commit SHA"
+        },
+        "diffStat": { "type": "string", "description": "From git diff --stat of the full workflow" }
+      },
+      "required": ["recordedAt", "mergeResult", "diffStat"],
+      "additionalProperties": false
+    },
+    "WorkflowRecord": {
+      "type": "object",
+      "description": "Complete workflow record. Equivalent to the root schema structure.",
+      "properties": {
+        "workflow": { "$ref": "#/$defs/WorkflowMeta" },
+        "brainstorm": {
+          "oneOf": [
+            { "$ref": "#/$defs/BrainstormRecord" },
+            { "type": "null" }
+          ]
+        },
+        "plan": {
+          "oneOf": [
+            { "$ref": "#/$defs/PlanRecord" },
+            { "type": "null" }
+          ]
+        },
+        "implementation": {
+          "oneOf": [
+            { "$ref": "#/$defs/ImplementationRecord" },
+            { "type": "null" }
+          ]
+        },
+        "reviews": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ReviewRecord" }
+        },
+        "close": {
+          "oneOf": [
+            { "$ref": "#/$defs/CloseRecord" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["workflow"],
+      "additionalProperties": false
+    }
+  }
+}
