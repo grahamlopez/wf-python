@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import datetime
 import json
 import os
 
+from wflib._util import utc_now_iso
 from wflib.types import TaskStatus
 
 LOG_PATH = "~/.wf/debug.log"
@@ -17,7 +17,7 @@ def log(event: str, **data) -> None:
         log_path = os.path.expanduser(LOG_PATH)
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         payload = {
-            "at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "at": utc_now_iso(),
             "event": event,
             **data,
         }

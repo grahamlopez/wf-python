@@ -7,7 +7,6 @@ from pathlib import Path
 from wflib.record import (
     clear_active_resource,
     create_record,
-    get_implementation_state,
     get_plan,
     get_total_usage,
     list_records,
@@ -16,9 +15,7 @@ from wflib.record import (
     record_close,
     record_event,
     record_implementation_complete,
-    record_implementation_start,
     record_plan,
-    record_review,
     record_task_complete,
     record_task_start,
     save_record,
@@ -131,6 +128,39 @@ class TestLoadSaveRecord(unittest.TestCase):
             bad_path.write_text("{not-json", encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_record("bad", tmpdir)
+
+
+class TestListRecords(unittest.TestCase):
+    def test_lists_valid_records_skips_malformed(self):
+        """list_records returns valid records and warns on malformed files."""
+        import io
+        import contextlib
+        import json as _json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create 2 valid records
+            create_record("alpha", tmpdir, "main", "aaa111")
+            create_record("beta", tmpdir, "main", "bbb222")
+
+            # Create 1 malformed .json file
+            workflows_dir = Path(tmpdir) / "docs" / "workflows"
+            bad_path = workflows_dir / "corrupt.json"
+            bad_path.write_text("{not valid json", encoding="utf-8")
+
+            # Capture stderr
+            stderr_buf = io.StringIO()
+            with contextlib.redirect_stderr(stderr_buf):
+                records = list_records(tmpdir)
+
+            # Should return exactly 2 valid records
+            self.assertEqual(len(records), 2)
+            names = sorted(r.workflow.name for r in records)
+            self.assertEqual(names, ["alpha", "beta"])
+
+            # Should have warned about the malformed file
+            stderr_output = stderr_buf.getvalue()
+            self.assertIn("Warning", stderr_output)
+            self.assertIn("corrupt.json", stderr_output)
 
 
 class TestPhaseTransitions(unittest.TestCase):

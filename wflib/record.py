@@ -10,8 +10,8 @@ import os
 import secrets
 import sys
 import tempfile
-from datetime import datetime, timezone
 
+from wflib._util import utc_now_iso
 from wflib.types import (
     BrainstormRecord,
     CloseRecord,
@@ -48,8 +48,8 @@ def ensure_workflows_dir(cwd: str) -> str:
     return path
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+# Timestamp helper re-exported from _util for backward compat
+_now_iso = utc_now_iso
 
 
 # --- CRUD ---
@@ -366,4 +366,5 @@ def get_total_usage(record: WorkflowRecord) -> Usage:
     for review in record.reviews:
         add_usage(review.usage)
 
+    total.cost = round(total.cost, 6)
     return total
