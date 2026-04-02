@@ -25,7 +25,10 @@ from wflib.record import (
 )
 from wflib.types import (
     BrainstormRecord,
+    DesignDecision,
+    ImplementationEventType,
     ImplementationRecord,
+    Plan,
     PlanRecord,
     ReviewRecord,
     Task,
@@ -37,6 +40,22 @@ from wflib.types import (
     WorkflowRecord,
     WorkflowStatus,
 )
+
+
+def _base_record(status: WorkflowStatus = WorkflowStatus.INIT) -> WorkflowRecord:
+    return WorkflowRecord(
+        workflow=WorkflowMeta(
+            id="a1b2",
+            name="demo",
+            created_at="2025-01-01T00:00:00Z",
+            status=status,
+            project="/tmp/demo",
+            source_branch="main",
+            source_commit="abc123",
+            worktree=None,
+            config=WorkflowConfig(),
+        )
+    )
 
 
 class TestCreateRecord(unittest.TestCase):
@@ -115,49 +134,149 @@ class TestLoadSaveRecord(unittest.TestCase):
 
 
 class TestPhaseTransitions(unittest.TestCase):
-    @unittest.skip("Phase 2")
     def test_record_brainstorm_sets_planning(self):
         """record_brainstorm sets status to 'planning'."""
+        record = _base_record()
+        usage = Usage(input=1, output=2, cache_read=0, cache_write=0, cost=0.1, turns=1)
+        decisions = [DesignDecision(decision="Use A", rationale="Simpler")]
 
-    @unittest.skip("Phase 2")
+        record_brainstorm(record, "Motivation", "Solution", decisions, usage)
+
+        self.assertEqual(record.workflow.status, WorkflowStatus.PLANNING)
+        self.assertIsNotNone(record.brainstorm)
+        self.assertEqual(record.brainstorm.motivation, "Motivation")
+        self.assertEqual(record.brainstorm.solution, "Solution")
+        self.assertEqual(record.brainstorm.design_decisions, decisions)
+        self.assertEqual(record.brainstorm.usage, usage)
+        self.assertTrue(record.brainstorm.recorded_at)
+
     def test_record_plan_sets_implementing(self):
         """record_plan sets status to 'implementing'."""
+        record = _base_record(status=WorkflowStatus.PLANNING)
+        task = Task(
+            id="task-1",
+            title="First task",
+            goal="Do work",
+            files=["file.py"],
+            constraints=["Keep it simple"],
+            acceptance=["Tests pass"],
+            depends_on=[],
+        )
+        plan = Plan(goal="Goal", context="Context", tasks=[task], default_model="gpt-4")
+        usage = Usage(input=3, output=4, cache_read=0, cache_write=0, cost=0.2, turns=1)
 
-    @unittest.skip("Phase 2")
+        record_plan(record, plan, usage)
+
+        self.assertEqual(record.workflow.status, WorkflowStatus.IMPLEMENTING)
+        self.assertIsNotNone(record.plan)
+        self.assertEqual(record.plan.goal, plan.goal)
+        self.assertEqual(record.plan.context, plan.context)
+        self.assertEqual(record.plan.tasks, plan.tasks)
+        self.assertEqual(record.plan.default_model, plan.default_model)
+        self.assertEqual(record.plan.usage, usage)
+        self.assertIsNotNone(record.implementation)
+        self.assertIn("task-1", record.implementation.tasks)
+        self.assertEqual(record.implementation.tasks["task-1"].status, TaskStatus.PENDING)
+
     def test_record_implementation_complete_sets_reviewing(self):
         """record_implementation_complete sets status to 'reviewing'."""
+        record = _base_record(status=WorkflowStatus.IMPLEMENTING)
+        record.implementation = ImplementationRecord(started_at="2025-01-01T00:00:00Z")
 
-    @unittest.skip("Phase 2")
+        record_implementation_complete(record)
+
+        self.assertEqual(record.workflow.status, WorkflowStatus.REVIEWING)
+        self.assertIsNotNone(record.implementation.completed_at)
+
     def test_record_close_sets_done(self):
         """record_close sets status to 'done'."""
+        record = _base_record(status=WorkflowStatus.REVIEWING)
+
+        record_close(record, "clean", "def456", "1 file changed")
+
+        self.assertEqual(record.workflow.status, WorkflowStatus.DONE)
+        self.assertIsNotNone(record.close)
+        self.assertEqual(record.close.merge_result, "clean")
+        self.assertEqual(record.close.final_commit, "def456")
+        self.assertEqual(record.close.diff_stat, "1 file changed")
+        self.assertTrue(record.close.recorded_at)
 
 
 class TestTaskTracking(unittest.TestCase):
-    @unittest.skip("Phase 2")
     def test_record_task_start(self):
         """record_task_start marks task as running with timestamp."""
+        record = _base_record(status=WorkflowStatus.IMPLEMENTING)
+        record.implementation = ImplementationRecord(
+            tasks={"task-1": TaskResult(status=TaskStatus.PENDING)}
+        )
 
-    @unittest.skip("Phase 2")
+        record_task_start(record, "task-1")
+
+        result = record.implementation.tasks["task-1"]
+        self.assertEqual(result.status, TaskStatus.RUNNING)
+        self.assertIsNotNone(result.started_at)
+
     def test_record_task_start_adds_active_resource(self):
         """record_task_start adds worktree to activeResources."""
+        record = _base_record(status=WorkflowStatus.IMPLEMENTING)
+        record.implementation = ImplementationRecord(
+            tasks={"task-1": TaskResult(status=TaskStatus.PENDING)}
+        )
 
-    @unittest.skip("Phase 2")
+        record_task_start(record, "task-1", worktree_path="/tmp/wt-task-1")
+
+        self.assertEqual(record.implementation.active_resources["task-1"], "/tmp/wt-task-1")
+        self.assertEqual(record.implementation.tasks["task-1"].worktree_path, "/tmp/wt-task-1")
+
     def test_record_task_complete(self):
         """record_task_complete stores TaskResult."""
+        record = _base_record(status=WorkflowStatus.IMPLEMENTING)
+        record.implementation = ImplementationRecord(
+            tasks={"task-1": TaskResult(status=TaskStatus.PENDING)}
+        )
+        result = TaskResult(status=TaskStatus.DONE, summary="Done")
 
-    @unittest.skip("Phase 2")
+        record_task_complete(record, "task-1", result)
+
+        self.assertEqual(record.implementation.tasks["task-1"], result)
+
     def test_clear_active_resource(self):
         """clear_active_resource removes worktree from activeResources."""
+        record = _base_record(status=WorkflowStatus.IMPLEMENTING)
+        record.implementation = ImplementationRecord(
+            active_resources={"task-1": "/tmp/wt1", "task-2": "/tmp/wt2"}
+        )
+
+        clear_active_resource(record, "task-1")
+
+        self.assertNotIn("task-1", record.implementation.active_resources)
+        self.assertIn("task-2", record.implementation.active_resources)
 
 
 class TestEvents(unittest.TestCase):
-    @unittest.skip("Phase 2")
     def test_record_event_appends(self):
         """record_event appends to implementation.events."""
+        record = _base_record(status=WorkflowStatus.IMPLEMENTING)
+        record.implementation = ImplementationRecord()
 
-    @unittest.skip("Phase 2")
+        record_event(record, "mergeStart", task="task-1", detail="Start merge")
+
+        self.assertEqual(len(record.implementation.events), 1)
+        event = record.implementation.events[0]
+        self.assertEqual(event.event, ImplementationEventType.MERGE_START)
+        self.assertEqual(event.task, "task-1")
+        self.assertEqual(event.detail, "Start merge")
+
     def test_event_has_timestamp(self):
         """Appended events have a timestamp."""
+        record = _base_record(status=WorkflowStatus.IMPLEMENTING)
+        record.implementation = ImplementationRecord()
+
+        record_event(record, "mergeComplete")
+
+        event = record.implementation.events[0]
+        self.assertTrue(event.t)
+        self.assertIn("T", event.t)
 
 
 class TestQueryHelpers(unittest.TestCase):
