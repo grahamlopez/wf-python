@@ -63,6 +63,10 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 
 **Acceptance criteria:** All `tests/unit/` pass
 
+**Review findings to address:**
+- **Finding #3:** `ImplementationEvent.event` should become a proper Enum or get validated (comment added in Phase 0; real enum/validation implementation belongs here)
+- **Finding #4:** `set_config_value` `path` param needs clear implementation — `path` is the project root directory used to locate `.wf/config.toml`, not a dotted config path or file path
+
 **Started:** —
 **Completed:** —
 **Lessons learned:** —
@@ -89,6 +93,10 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 
 **Acceptance criteria:** All `tests/unit/test_profiles.py`, `tests/profile/`, `tests/adapter/` pass
 
+**Review findings to address:**
+- **Finding #5:** Extract shared `_wf_dir` helper to a base module; provide shared `_effective_map_for` helper in `profiles/__init__.py` to eliminate duplication across profile implementations
+- **Finding #9:** `RunnerProfile` import was fixed in Phase 0 cleanup, but the real implementation in `task_executor.py` needs to wire up the profile protocol properly
+
 **Started:** —
 **Completed:** —
 **Lessons learned:** —
@@ -102,6 +110,13 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 
 **Acceptance criteria:** All `tests/e2e/` pass, `wf help` works
 
+**Review findings to address:**
+- **Finding #8:** `ReviewRecord` import was fixed in Phase 0, but `execute_fixup` is still a stub — needs real implementation
+- **Finding #10:** E2E tests use `unittest.TestCase` but `conftest.py` provides pytest fixtures (`@pytest.fixture`, `monkeypatch`) — need to reconcile by converting E2E tests to pytest functions or wrapping fixtures for unittest compatibility
+- **Finding #6:** crash-recovery fixture `_comment` added in Phase 0, but the E2E test setup must actually create pre-crash state where all tasks were running (none completed), then verify all reset to pending
+- **Finding #7:** `scheduler.py` → `render.py` cross-module import comment added in Phase 0 — implement `ExecutionSummary` with `UsageRow` integration per spec
+- **Finding #13:** `bin/wf` no-args case error message updated in Phase 0 — implement actual help topics display
+
 **Started:** —
 **Completed:** —
 **Lessons learned:** —
@@ -114,6 +129,9 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 **Planned scope:** Pi tool extensions (TS), MCP server, all system prompts, shipped templates, pi wrapper index.ts
 
 **Acceptance criteria:** Tools validate-and-return, prompts ported, wrapper delegates to CLI
+
+**Review findings to address:**
+- **Finding #2:** Create `tools/`, `tools/pi_extensions/`, `prompts/`, `templates/` directories — `templates/` is needed by `wflib/templates.py`'s `SHIPPED_DIR` constant
 
 **Started:** —
 **Completed:** —
@@ -132,6 +150,20 @@ _(none yet)_
 
 ## Deferred Items
 
-Items identified during implementation that are out of scope for the current phase but should be addressed later.
+Items identified during Phase 0 code review. 13 findings total — some fixed immediately in Phase 0 cleanup (task-1), others deferred to later phases.
 
-_(none yet)_
+| # | Finding | Severity | Disposition |
+|---|---------|----------|-------------|
+| 1 | Guard `os.makedirs` in `mock_agent.py` — skip if `dirname` returns empty string | low | **Fixed** in Phase 0 cleanup |
+| 2 | Create `tools/`, `tools/pi_extensions/`, `prompts/`, `templates/` directories (`templates/` needed by `wflib/templates.py` `SHIPPED_DIR`) | medium | **Deferred → Phase 5** |
+| 3 | `ImplementationEvent.event` should become a proper Enum or get validated (comment added in Phase 0) | medium | **Deferred → Phase 1** |
+| 4 | `set_config_value` `path` param needs clear implementation — it's the project root, not a dotted path (comment added in Phase 0) | low | **Deferred → Phase 1** |
+| 5 | Extract shared `_wf_dir` to base; provide `_effective_map_for` helper in `profiles/__init__.py` | medium | **Deferred → Phase 3** |
+| 6 | crash-recovery fixture `_comment` added, but test setup must create pre-crash state with all tasks running | medium | **Deferred → Phase 4** |
+| 7 | `scheduler.py` → `render.py` import comment added; implement `ExecutionSummary` with `UsageRow` per spec | low | **Deferred → Phase 4** |
+| 8 | `ReviewRecord` import fixed in `scheduler.py`, but `execute_fixup` still a stub needing real implementation | medium | **Deferred → Phase 4** |
+| 9 | `RunnerProfile` import fixed in `task_executor.py`, but implementation needs to wire up profile protocol | medium | **Deferred → Phase 3** |
+| 10 | E2E tests use `unittest.TestCase` but `conftest.py` provides pytest fixtures — need to reconcile | high | **Deferred → Phase 4** |
+| 11 | Create `README.md` at repo root | low | **Fixed** in Phase 0 cleanup |
+| 12 | Remove all `__pycache__` directories from disk | low | **Fixed** in Phase 0 cleanup |
+| 13 | `bin/wf` no-args case needs help topics implementation (error message updated in Phase 0) | low | **Deferred → Phase 4** |
