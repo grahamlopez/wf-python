@@ -112,9 +112,9 @@ class TestLoadProjectConfig(unittest.TestCase):
 
 class TestParseOverrides(unittest.TestCase):
     def test_simple_key_value(self):
-        """Parses 'key=value' into a flat nested dict."""
-        result = parse_overrides(["concurrency=8"])
-        self.assertEqual(result, {"concurrency": "8"})
+        """Non-dotted keys are rejected."""
+        with self.assertRaisesRegex(ValueError, "section.key"):
+            parse_overrides(["concurrency=8"])
 
     def test_dotted_key(self):
         """Parses 'model.plan=opus' into {'model': {'plan': 'opus'}}."""
@@ -133,8 +133,18 @@ class TestParseOverrides(unittest.TestCase):
 
     def test_value_with_equals(self):
         """Values containing '=' are preserved."""
-        result = parse_overrides(["key=a=b"])
-        self.assertEqual(result, {"key": "a=b"})
+        result = parse_overrides(["model.plan=a=b"])
+        self.assertEqual(result, {"model": {"plan": "a=b"}})
+
+    def test_dash_key_normalized(self):
+        """Dash-case keys are normalized to underscores."""
+        result = parse_overrides(["execute.auto-review=false"])
+        self.assertEqual(result, {"execute": {"auto_review": "false"}})
+
+    def test_rejects_extra_dots(self):
+        """Only one dot is allowed in override keys."""
+        with self.assertRaisesRegex(ValueError, "section.key"):
+            parse_overrides(["model.plan.extra=opus"])
 
     def test_empty_list(self):
         """Empty list returns empty dict."""
@@ -299,6 +309,27 @@ class TestResolveConfig(unittest.TestCase):
             config = resolve_config(self.tmp)
         self.assertFalse(config.execute.auto_review)
 
+    def test_override_concurrency_coerces(self):
+        """String overrides coerce numeric values before validation."""
+        fake_user = os.path.join(self.tmp, "no_user_config.toml")
+        with patch("wflib.config.USER_CONFIG_PATH", fake_user):
+            config = resolve_config(self.tmp, overrides=["execute.concurrency=8"])
+        self.assertEqual(config.execute.concurrency, 8)
+
+    def test_override_bool_coerces(self):
+        """String overrides coerce boolean values before validation."""
+        fake_user = os.path.join(self.tmp, "no_user_config.toml")
+        with patch("wflib.config.USER_CONFIG_PATH", fake_user):
+            config = resolve_config(self.tmp, overrides=["ui.tmux=false"])
+        self.assertFalse(config.ui.tmux)
+
+    def test_override_invalid_value_raises(self):
+        """Invalid override values raise ConfigError."""
+        fake_user = os.path.join(self.tmp, "no_user_config.toml")
+        with patch("wflib.config.USER_CONFIG_PATH", fake_user):
+            with self.assertRaises(ConfigError):
+                resolve_config(self.tmp, overrides=["execute.concurrency=abc"])
+
     def test_models_section_aliases(self):
         """Models section aliases are loaded correctly."""
         self._write_project_config(
@@ -333,6 +364,24 @@ class TestApplyCliOverrides(unittest.TestCase):
         config = WorkflowConfig()
         result = apply_cli_overrides(config, concurrency=2)
         self.assertEqual(result.execute.concurrency, 2)
+
+    def test_invalid_concurrency_zero_raises(self):
+        """Invalid concurrency values raise ConfigError."""
+        config = WorkflowConfig()
+        with self.assertRaises(ConfigError):
+            apply_cli_overrides(config, concurrency=0)
+
+    def test_invalid_concurrency_negative_raises(self):
+        """Invalid concurrency values raise ConfigError."""
+        config = WorkflowConfig()
+        with self.assertRaises(ConfigError):
+            apply_cli_overrides(config, concurrency=-1)
+
+    def test_valid_concurrency_passes(self):
+        """Valid concurrency values apply successfully."""
+        config = WorkflowConfig()
+        result = apply_cli_overrides(config, concurrency=4)
+        self.assertEqual(result.execute.concurrency, 4)
 
     def test_none_values_ignored(self):
         """None kwargs don't override existing values."""

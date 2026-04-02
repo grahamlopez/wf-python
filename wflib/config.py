@@ -427,13 +427,14 @@ def parse_overrides(overrides: list[str]) -> dict:
         if not key:
             raise ValueError(f"Malformed override (empty key): '{item}'")
 
-        parts = key.split(".")
-        target = result
-        for part in parts[:-1]:
-            if part not in target:
-                target[part] = {}
-            target = target[part]
-        target[parts[-1]] = value
+        if key.count(".") != 1:
+            raise ValueError(f"Override key must be in 'section.key' format: '{key}'")
+
+        section, subkey = key.split(".", 1)
+        subkey = _DASH_TO_UNDERSCORE.get(subkey, subkey)
+        if section not in result:
+            result[section] = {}
+        result[section][subkey] = value
     return result
 
 
@@ -494,6 +495,14 @@ def resolve_config(
         if errors:
             raise ConfigError(f"Invalid {label}: {'; '.join(errors)}")
 
+    # Coerce override string values to native types before validation
+    for section, section_val in overrides_dict.items():
+        if not isinstance(section_val, dict):
+            continue
+        for subkey, raw_value in section_val.items():
+            if isinstance(raw_value, str):
+                section_val[subkey] = _coerce_string_value(section, subkey, raw_value)
+
     # Merge all layers
     merged = merge_configs(defaults_dict, user_dict, project_dict, overrides_dict)
 
@@ -535,7 +544,13 @@ def apply_cli_overrides(
 
     for kwarg, (section, key) in _CLI_MAPPINGS.items():
         if kwarg in kwargs and kwargs[kwarg] is not None:
-            d[section][key] = kwargs[kwarg]
+            value = kwargs[kwarg]
+            rule = _VALIDATION_RULES.get((section, key))
+            if rule is not None:
+                err = rule(value)
+                if err:
+                    raise ConfigError(err)
+            d[section][key] = value
 
     return _merge_dict_to_config(d)
 
