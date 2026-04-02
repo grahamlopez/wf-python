@@ -475,9 +475,10 @@ def _deserialize_value(raw, hint):
         key_type, val_type = dict_types
         result = {}
         for k, v in raw.items():
-            # Convert camelCase keys back to snake_case for dict fields
-            # that use string keys matching Python identifiers
-            py_key = k  # dict keys stay as-is (e.g. task IDs, aliases)
+            # Dict keys are data keys (task IDs, alias names, profile names),
+            # not dataclass field names — preserve them exactly as provided.
+            # Only dataclass field names go through camelCase/snake_case conversion.
+            py_key = k
             result[py_key] = _deserialize_value(v, val_type)
         return result
 
