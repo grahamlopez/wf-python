@@ -171,15 +171,181 @@
   },
   "planId": "04da",
   "statuses": {
-    "task-1": "pending",
-    "task-2": "pending",
-    "task-3": "pending",
-    "task-4": "pending",
-    "task-5": "pending",
-    "task-6": "pending",
-    "task-7": "pending"
+    "task-1": "done",
+    "task-2": "done",
+    "task-3": "done",
+    "task-4": "failed",
+    "task-5": "done",
+    "task-6": "done",
+    "task-7": "skipped"
   },
-  "results": {},
+  "results": {
+    "task-1": {
+      "taskId": "task-1",
+      "title": "Project skeleton + CLI entry point",
+      "exitCode": 0,
+      "summary": "Created the complete project skeleton with all directories, `__init__.py` package files, `bin/wf` with full argparse CLI registering all 23 subcommands and their flags (each handler prints `{\"error\": \"not implemented\"}` and exits 1), and `pytest.ini`.",
+      "filesChanged": [
+        "bin/wf",
+        "pytest.ini",
+        "wflib/__init__.py",
+        "profiles/__init__.py",
+        "adapters/__init__.py",
+        "tests/__init__.py",
+        "tests/unit/__init__.py",
+        "tests/integration/__init__.py",
+        "tests/e2e/__init__.py",
+        "tests/profile/__init__.py",
+        "tests/adapter/__init__.py",
+        "bin/"
+      ],
+      "notes": "- `config` and `template` use nested subparsers (e.g., `wf config list`, `wf config get`, `wf template render`) per the spec\n- `--auto-close` uses `nargs=\"?\"` with `const=0` to support both `--auto-close` (no value) and `--auto-close 30` forms\n- `--set` on init uses `action=\"append\"` for repeatability\n- Added `--profile` flag to `execute` and `--usage` to `record-brainstorm`/`submit-plan` per the detailed help reference section in the spec (these were in the detailed subcommand docs but not in the initial CLI reference block)",
+      "usage": {
+        "input": 51,
+        "output": 10888,
+        "cacheRead": 1460138,
+        "cacheWrite": 43949,
+        "cost": 1.2772052499999997,
+        "turns": 50
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "adapters/__init__.py                          |   1 +\n adapters/__pycache__/__init__.cpython-312.pyc | Bin 0 -> 228 bytes\n bin/wf                                        | 336 ++++++++++++++++++++++++++\n profiles/__init__.py                          |   1 +\n profiles/__pycache__/__init__.cpython-312.pyc | Bin 0 -> 223 bytes\n pytest.ini                                    |   2 +\n tests/__init__.py                             |   0\n tests/adapter/__init__.py                     |   0\n tests/e2e/__init__.py                         |   0\n tests/integration/__init__.py                 |   0\n tests/profile/__init__.py                     |   0\n tests/unit/__init__.py                        |   0\n wflib/__init__.py                             |   1 +\n wflib/__pycache__/__init__.cpython-312.pyc    | Bin 0 -> 233 bytes\n 14 files changed, 341 insertions(+)"
+    },
+    "task-3": {
+      "taskId": "task-3",
+      "title": "Type definitions in wflib/types.py",
+      "exitCode": 0,
+      "summary": "Created `wflib/types.py` with all 21 dataclasses, 3 enums, camelCase/snake_case conversion helpers, and 6 stub functions matching the spec exactly.",
+      "filesChanged": [
+        "wflib/types.py"
+      ],
+      "notes": "",
+      "usage": {
+        "input": 8,
+        "output": 4327,
+        "cacheRead": 54698,
+        "cacheWrite": 14197,
+        "cost": 0.22429525000000003,
+        "turns": 7
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "wflib/__pycache__/__init__.cpython-312.pyc | Bin 233 -> 233 bytes\n wflib/__pycache__/types.cpython-312.pyc    | Bin 0 -> 13350 bytes\n wflib/types.py                             | 312 +++++++++++++++++++++++++++++\n 3 files changed, 312 insertions(+)"
+    },
+    "task-2": {
+      "taskId": "task-2",
+      "title": "JSON Schema",
+      "exitCode": 0,
+      "summary": "Created `schemas/workflow.schema.json` with the complete JSON Schema for the workflow record file. The schema contains 25 `$defs` covering all data structures from the spec, with camelCase field names throughout, proper `$ref` cross-references between definitions, and exact enum values for `TaskStatus`, `WorkflowStatus`, and `AutomationLevel`.",
+      "filesChanged": [
+        "schemas/workflow.schema.json"
+      ],
+      "notes": "",
+      "usage": {
+        "input": 13,
+        "output": 10018,
+        "cacheRead": 171709,
+        "cacheWrite": 23654,
+        "cost": 0.48420700000000005,
+        "turns": 12
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "schemas/workflow.schema.json               | 612 +++++++++++++++++++++++++++++\n wflib/__pycache__/__init__.cpython-312.pyc | Bin 233 -> 233 bytes\n wflib/__pycache__/types.cpython-312.pyc    | Bin 13350 -> 0 bytes\n wflib/types.py                             | 312 ---------------\n 4 files changed, 612 insertions(+), 312 deletions(-)"
+    },
+    "task-4": {
+      "taskId": "task-4",
+      "title": "Test infrastructure",
+      "exitCode": 0,
+      "summary": "Created the four test infrastructure files: `tests/conftest.py` (sys.path setup), `tests/e2e/conftest.py` (`project_from_fixture` fixture), `tests/e2e/mock_agent.py` (deterministic mock agent from spec), and `tests/util.py` (`run_wf()` subprocess helper). All three acceptance criteria pass.",
+      "filesChanged": [
+        "tests/conftest.py",
+        "tests/e2e/conftest.py",
+        "tests/e2e/mock_agent.py",
+        "tests/util.py"
+      ],
+      "notes": "- Had to install pytest (via pip bootstrap) since the environment didn't have it pre-installed. The `--collect-only` exit code 5 means \"no tests collected\" which is correct — there are no test functions yet, but crucially there are zero conftest load errors.\n- The `run_wf()` helper uses `python3 bin/wf` rather than executing `bin/wf` directly, ensuring it works regardless of shebang path resolution in the test environment.",
+      "error": "Conflicts in: wflib/__pycache__/__init__.cpython-312.pyc",
+      "usage": {
+        "input": 27,
+        "output": 6237,
+        "cacheRead": 448073,
+        "cacheWrite": 23208,
+        "cost": 0.5251465,
+        "turns": 26
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "adapters/__pycache__/__init__.cpython-312.pyc      | Bin 228 -> 228 bytes\n profiles/__pycache__/__init__.cpython-312.pyc      | Bin 223 -> 223 bytes\n schemas/workflow.schema.json                       | 612 ---------------------\n tests/__pycache__/__init__.cpython-312.pyc         | Bin 0 -> 158 bytes\n .../conftest.cpython-312-pytest-9.0.2.pyc          | Bin 0 -> 727 bytes\n tests/__pycache__/util.cpython-312.pyc             | Bin 0 -> 3315 bytes\n tests/conftest.py                                  |  10 +\n tests/e2e/__pycache__/__init__.cpython-312.pyc     | Bin 0 -> 162 bytes\n .../conftest.cpython-312-pytest-9.0.2.pyc          | Bin 0 -> 3766 bytes\n tests/e2e/conftest.py                              |  94 ++++\n tests/e2e/mock_agent.py                            |  50 ++\n tests/util.py                                      |  84 +++\n wflib/__pycache__/__init__.cpython-312.pyc         | Bin 233 -> 233 bytes\n wflib/__pycache__/types.cpython-312.pyc            | Bin 13350 -> 0 bytes\n wflib/types.py                                     | 312 -----------\n 15 files changed, 238 insertions(+), 924 deletions(-)"
+    },
+    "task-6": {
+      "taskId": "task-6",
+      "title": "E2E fixture data",
+      "exitCode": 0,
+      "summary": "Created all 9 E2E test fixture directories with structurally correct, self-consistent plan.json, scenario.json, repo/ source files, and expected/ assertion stubs. Each fixture matches its scenario description from the spec's \"Scenarios Worth Encoding\" table.",
+      "filesChanged": [
+        "tests/e2e/fixtures/simple-split/",
+        "tests/e2e/fixtures/linear-chain/",
+        "tests/e2e/fixtures/diamond-deps/",
+        "tests/e2e/fixtures/task-failure/",
+        "tests/e2e/fixtures/merge-conflict/",
+        "tests/e2e/fixtures/merge-conflict-unresolvable/",
+        "tests/e2e/fixtures/review-fixup/",
+        "tests/e2e/fixtures/crash-recovery/",
+        "tests/e2e/fixtures/full-lifecycle/"
+      ],
+      "notes": "- All plan.json files use camelCase (`defaultModel`, `dependsOn`) matching `$defs/Plan` schema\n- All scenario.json files use the mock agent contract format with `tasks`, `match`, `operations`, `report_result`, `exit_code`\n- Task IDs in scenario.json match plan.json; dependency graphs are self-consistent\n- The `task-failure` scenario has only 3 scenario entries (no entry for task-3 since it gets skipped due to dependency on failed task-2)\n- merge-conflict and merge-conflict-unresolvable scenarios include a `merge-resolve` entry for the conflict resolution agent\n- review-fixup includes a `fixup-task-1` entry for the post-review fixup execution\n- Each repo has 2-3 source files — minimal but realistic Python projects per the \"Fixture Design Principles\"",
+      "usage": {
+        "input": 27,
+        "output": 24702,
+        "cacheRead": 661824,
+        "cacheWrite": 47787,
+        "cost": 1.2472657500000002,
+        "turns": 26
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "schemas/workflow.schema.json                       | 612 ---------------------\n .../fixtures/crash-recovery/expected/files.json    |   5 +\n .../e2e/fixtures/crash-recovery/expected/git.json  |   3 +\n .../fixtures/crash-recovery/expected/record.json   |  13 +\n tests/e2e/fixtures/crash-recovery/plan.json        |  34 ++\n .../e2e/fixtures/crash-recovery/repo/src/queue.py  |  12 +\n .../e2e/fixtures/crash-recovery/repo/src/worker.py |  11 +\n .../crash-recovery/repo/tests/test_worker.py       |   8 +\n tests/e2e/fixtures/crash-recovery/scenario.json    |  49 ++\n .../e2e/fixtures/diamond-deps/expected/files.json  |   9 +\n tests/e2e/fixtures/diamond-deps/expected/git.json  |   4 +\n .../e2e/fixtures/diamond-deps/expected/record.json |  10 +\n tests/e2e/fixtures/diamond-deps/plan.json          |  43 ++\n tests/e2e/fixtures/diamond-deps/repo/src/auth.py   |  25 +\n tests/e2e/fixtures/diamond-deps/repo/src/config.py |   4 +\n .../fixtures/diamond-deps/repo/tests/test_auth.py  |  11 +\n tests/e2e/fixtures/diamond-deps/scenario.json      |  69 +++\n .../fixtures/full-lifecycle/expected/files.json    |   6 +\n .../e2e/fixtures/full-lifecycle/expected/git.json  |   5 +\n .../fixtures/full-lifecycle/expected/record.json   |  18 +\n tests/e2e/fixtures/full-lifecycle/plan.json        |  34 ++\n .../fixtures/full-lifecycle/repo/src/greeting.py   |   9 +\n tests/e2e/fixtures/full-lifecycle/repo/src/main.py |  11 +\n .../full-lifecycle/repo/tests/test_greeting.py     |  11 +\n tests/e2e/fixtures/full-lifecycle/scenario.json    |  54 ++\n .../e2e/fixtures/linear-chain/expected/files.json  |   8 +\n tests/e2e/fixtures/linear-chain/expected/git.json  |   4 +\n .../e2e/fixtures/linear-chain/expected/record.json |   9 +\n tests/e2e/fixtures/linear-chain/plan.json          |  34 ++\n tests/e2e/fixtures/linear-chain/repo/src/config.py |   4 +\n tests/e2e/fixtures/linear-chain/repo/src/data.py   |  20 +\n .../fixtures/linear-chain/repo/tests/test_data.py  |   7 +\n tests/e2e/fixtures/linear-chain/scenario.json      |  54 ++\n .../expected/files.json                            |   5 +\n .../merge-conflict-unresolvable/expected/git.json  |   4 +\n .../expected/record.json                           |   7 +\n .../fixtures/merge-conflict-unresolvable/plan.json |  25 +\n .../repo/src/migrate.py                            |   6 +\n .../merge-conflict-unresolvable/repo/src/schema.py |  12 +\n .../repo/tests/test_schema.py                      |   8 +\n .../merge-conflict-unresolvable/scenario.json      |  43 ++\n .../fixtures/merge-conflict/expected/files.json    |   5 +\n .../e2e/fixtures/merge-conflict/expected/git.json  |   4 +\n .../fixtures/merge-conflict/expected/record.json   |  12 +\n tests/e2e/fixtures/merge-conflict/plan.json        |  25 +\n tests/e2e/fixtures/merge-conflict/repo/src/app.py  |   7 +\n .../fixtures/merge-conflict/repo/src/constants.py  |   6 +\n .../fixtures/merge-conflict/repo/tests/test_app.py |   8 +\n tests/e2e/fixtures/merge-conflict/scenario.json    |  49 ++\n .../e2e/fixtures/review-fixup/expected/files.json  |   5 +\n tests/e2e/fixtures/review-fixup/expected/git.json  |   4 +\n .../e2e/fixtures/review-fixup/expected/record.json |  21 +\n tests/e2e/fixtures/review-fixup/plan.json          |  25 +\n tests/e2e/fixtures/review-fixup/repo/src/app.py    |  16 +\n tests/e2e/fixtures/review-fixup/repo/src/logger.py |  11 +\n .../review-fixup/repo/tests/test_logger.py         |   8 +\n tests/e2e/fixtures/review-fixup/scenario.json      |  49 ++\n .../e2e/fixtures/simple-split/expected/files.json  |   7 +\n tests/e2e/fixtures/simple-split/expected/git.json  |   4 +\n .../e2e/fixtures/simple-split/expected/record.json |   8 +\n tests/e2e/fixtures/simple-split/plan.json          |  25 +\n tests/e2e/fixtures/simple-split/repo/src/app.py    |  18 +\n tests/e2e/fixtures/simple-split/repo/src/config.py |   5 +\n .../fixtures/simple-split/repo/tests/test_app.py   |   8 +\n tests/e2e/fixtures/simple-split/scenario.json      |  39 ++\n .../e2e/fixtures/task-failure/expected/files.json  |   5 +\n tests/e2e/fixtures/task-failure/expected/git.json  |   4 +\n .../e2e/fixtures/task-failure/expected/record.json |  10 +\n tests/e2e/fixtures/task-failure/plan.json          |  43 ++\n .../fixtures/task-failure/repo/src/calculator.py   |  19 +\n tests/e2e/fixtures/task-failure/repo/src/utils.py  |   5 +\n .../fixtures/task-failure/repo/tests/test_calc.py  |  11 +\n tests/e2e/fixtures/task-failure/scenario.json      |  43 ++\n wflib/__pycache__/__init__.cpython-312.pyc         | Bin 233 -> 233 bytes\n wflib/__pycache__/types.cpython-312.pyc            | Bin 13350 -> 0 bytes\n wflib/types.py                                     | 312 -----------\n 76 files changed, 1217 insertions(+), 924 deletions(-)"
+    },
+    "task-5": {
+      "taskId": "task-5",
+      "title": "Module stubs for all Python modules",
+      "exitCode": 0,
+      "summary": "Created minimal stub files for all 18 Python modules across `wflib/`, `profiles/`, and `adapters/` (excluding `wflib/types.py` which already existed). Every public function/class from the spec has a stub raising `NotImplementedError`, all dataclasses are fully defined with fields and defaults, and import chains between modules work correctly.",
+      "filesChanged": [
+        "wflib/config.py",
+        "wflib/record.py",
+        "wflib/validate.py",
+        "wflib/brief.py",
+        "wflib/scheduler.py",
+        "wflib/task_executor.py",
+        "wflib/runner.py",
+        "wflib/tmux.py",
+        "wflib/git.py",
+        "wflib/worktree.py",
+        "wflib/review.py",
+        "wflib/render.py",
+        "wflib/templates.py",
+        "wflib/log.py",
+        "wflib/completions.py",
+        "wflib/help.py",
+        "profiles/__init__.py",
+        "profiles/pi.py",
+        "profiles/claude_code.py",
+        "profiles/mock.py",
+        "adapters/pi_json_mode.py",
+        "adapters/pi_session.py",
+        "adapters/claude_stream_json.py"
+      ],
+      "notes": "",
+      "usage": {
+        "input": 46,
+        "output": 20797,
+        "cacheRead": 1966222,
+        "cacheWrite": 63448,
+        "cost": 1.8998159999999995,
+        "turns": 45
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "adapters/__pycache__/__init__.cpython-312.pyc      | Bin 228 -> 228 bytes\n .../__pycache__/claude_stream_json.cpython-312.pyc | Bin 0 -> 676 bytes\n adapters/__pycache__/pi_json_mode.cpython-312.pyc  | Bin 0 -> 682 bytes\n adapters/__pycache__/pi_session.cpython-312.pyc    | Bin 0 -> 671 bytes\n adapters/claude_stream_json.py                     |  12 +\n adapters/pi_json_mode.py                           |  12 +\n adapters/pi_session.py                             |  12 +\n profiles/__init__.py                               |  93 ++++\n profiles/__pycache__/__init__.cpython-312.pyc      | Bin 223 -> 4160 bytes\n profiles/__pycache__/claude_code.cpython-312.pyc   | Bin 0 -> 4627 bytes\n profiles/__pycache__/mock.cpython-312.pyc          | Bin 0 -> 3577 bytes\n profiles/__pycache__/pi.cpython-312.pyc            | Bin 0 -> 4945 bytes\n profiles/claude_code.py                            |  80 +++\n profiles/mock.py                                   |  60 ++\n profiles/pi.py                                     |  90 +++\n schemas/workflow.schema.json                       | 612 ---------------------\n .../fixtures/crash-recovery/expected/files.json    |   5 -\n .../e2e/fixtures/crash-recovery/expected/git.json  |   3 -\n .../fixtures/crash-recovery/expected/record.json   |  13 -\n tests/e2e/fixtures/crash-recovery/plan.json        |  34 --\n .../e2e/fixtures/crash-recovery/repo/src/queue.py  |  12 -\n .../e2e/fixtures/crash-recovery/repo/src/worker.py |  11 -\n .../crash-recovery/repo/tests/test_worker.py       |   8 -\n tests/e2e/fixtures/crash-recovery/scenario.json    |  49 --\n .../e2e/fixtures/diamond-deps/expected/files.json  |   9 -\n tests/e2e/fixtures/diamond-deps/expected/git.json  |   4 -\n .../e2e/fixtures/diamond-deps/expected/record.json |  10 -\n tests/e2e/fixtures/diamond-deps/plan.json          |  43 --\n tests/e2e/fixtures/diamond-deps/repo/src/auth.py   |  25 -\n tests/e2e/fixtures/diamond-deps/repo/src/config.py |   4 -\n .../fixtures/diamond-deps/repo/tests/test_auth.py  |  11 -\n tests/e2e/fixtures/diamond-deps/scenario.json      |  69 ---\n .../fixtures/full-lifecycle/expected/files.json    |   6 -\n .../e2e/fixtures/full-lifecycle/expected/git.json  |   5 -\n .../fixtures/full-lifecycle/expected/record.json   |  18 -\n tests/e2e/fixtures/full-lifecycle/plan.json        |  34 --\n .../fixtures/full-lifecycle/repo/src/greeting.py   |   9 -\n tests/e2e/fixtures/full-lifecycle/repo/src/main.py |  11 -\n .../full-lifecycle/repo/tests/test_greeting.py     |  11 -\n tests/e2e/fixtures/full-lifecycle/scenario.json    |  54 --\n .../e2e/fixtures/linear-chain/expected/files.json  |   8 -\n tests/e2e/fixtures/linear-chain/expected/git.json  |   4 -\n .../e2e/fixtures/linear-chain/expected/record.json |   9 -\n tests/e2e/fixtures/linear-chain/plan.json          |  34 --\n tests/e2e/fixtures/linear-chain/repo/src/config.py |   4 -\n tests/e2e/fixtures/linear-chain/repo/src/data.py   |  20 -\n .../fixtures/linear-chain/repo/tests/test_data.py  |   7 -\n tests/e2e/fixtures/linear-chain/scenario.json      |  54 --\n .../expected/files.json                            |   5 -\n .../merge-conflict-unresolvable/expected/git.json  |   4 -\n .../expected/record.json                           |   7 -\n .../fixtures/merge-conflict-unresolvable/plan.json |  25 -\n .../repo/src/migrate.py                            |   6 -\n .../merge-conflict-unresolvable/repo/src/schema.py |  12 -\n .../repo/tests/test_schema.py                      |   8 -\n .../merge-conflict-unresolvable/scenario.json      |  43 --\n .../fixtures/merge-conflict/expected/files.json    |   5 -\n .../e2e/fixtures/merge-conflict/expected/git.json  |   4 -\n .../fixtures/merge-conflict/expected/record.json   |  12 -\n tests/e2e/fixtures/merge-conflict/plan.json        |  25 -\n tests/e2e/fixtures/merge-conflict/repo/src/app.py  |   7 -\n .../fixtures/merge-conflict/repo/src/constants.py  |   6 -\n .../fixtures/merge-conflict/repo/tests/test_app.py |   8 -\n tests/e2e/fixtures/merge-conflict/scenario.json    |  49 --\n .../e2e/fixtures/review-fixup/expected/files.json  |   5 -\n tests/e2e/fixtures/review-fixup/expected/git.json  |   4 -\n .../e2e/fixtures/review-fixup/expected/record.json |  21 -\n tests/e2e/fixtures/review-fixup/plan.json          |  25 -\n tests/e2e/fixtures/review-fixup/repo/src/app.py    |  16 -\n tests/e2e/fixtures/review-fixup/repo/src/logger.py |  11 -\n .../review-fixup/repo/tests/test_logger.py         |   8 -\n tests/e2e/fixtures/review-fixup/scenario.json      |  49 --\n .../e2e/fixtures/simple-split/expected/files.json  |   7 -\n tests/e2e/fixtures/simple-split/expected/git.json  |   4 -\n .../e2e/fixtures/simple-split/expected/record.json |   8 -\n tests/e2e/fixtures/simple-split/plan.json          |  25 -\n tests/e2e/fixtures/simple-split/repo/src/app.py    |  18 -\n tests/e2e/fixtures/simple-split/repo/src/config.py |   5 -\n .../fixtures/simple-split/repo/tests/test_app.py   |   8 -\n tests/e2e/fixtures/simple-split/scenario.json      |  39 --\n .../e2e/fixtures/task-failure/expected/files.json  |   5 -\n tests/e2e/fixtures/task-failure/expected/git.json  |   4 -\n .../e2e/fixtures/task-failure/expected/record.json |  10 -\n tests/e2e/fixtures/task-failure/plan.json          |  43 --\n .../fixtures/task-failure/repo/src/calculator.py   |  19 -\n tests/e2e/fixtures/task-failure/repo/src/utils.py  |   5 -\n .../fixtures/task-failure/repo/tests/test_calc.py  |  11 -\n tests/e2e/fixtures/task-failure/scenario.json      |  43 --\n wflib/__pycache__/__init__.cpython-312.pyc         | Bin 233 -> 233 bytes\n wflib/__pycache__/brief.cpython-312.pyc            | Bin 0 -> 1250 bytes\n wflib/__pycache__/completions.cpython-312.pyc      | Bin 0 -> 1934 bytes\n wflib/__pycache__/config.cpython-312.pyc           | Bin 0 -> 4551 bytes\n wflib/__pycache__/git.cpython-312.pyc              | Bin 0 -> 2284 bytes\n wflib/__pycache__/help.cpython-312.pyc             | Bin 0 -> 1042 bytes\n wflib/__pycache__/log.cpython-312.pyc              | Bin 0 -> 877 bytes\n wflib/__pycache__/record.cpython-312.pyc           | Bin 0 -> 7268 bytes\n wflib/__pycache__/render.cpython-312.pyc           | Bin 0 -> 4166 bytes\n wflib/__pycache__/review.cpython-312.pyc           | Bin 0 -> 2687 bytes\n wflib/__pycache__/runner.cpython-312.pyc           | Bin 0 -> 3584 bytes\n wflib/__pycache__/scheduler.cpython-312.pyc        | Bin 0 -> 3996 bytes\n wflib/__pycache__/task_executor.cpython-312.pyc    | Bin 0 -> 3050 bytes\n wflib/__pycache__/templates.cpython-312.pyc        | Bin 0 -> 2509 bytes\n wflib/__pycache__/tmux.cpython-312.pyc             | Bin 0 -> 2467 bytes\n wflib/__pycache__/types.cpython-312.pyc            | Bin 13350 -> 13350 bytes\n wflib/__pycache__/validate.cpython-312.pyc         | Bin 0 -> 2699 bytes\n wflib/__pycache__/worktree.cpython-312.pyc         | Bin 0 -> 4340 bytes\n wflib/brief.py                                     |  27 +\n wflib/completions.py                               |  49 ++\n wflib/config.py                                    | 114 ++++\n wflib/git.py                                       |  47 ++\n wflib/help.py                                      |  21 +\n wflib/log.py                                       |  17 +\n wflib/record.py                                    | 164 ++++++\n wflib/render.py                                    |  83 +++\n wflib/review.py                                    |  54 ++\n wflib/runner.py                                    |  76 +++\n wflib/scheduler.py                                 |  83 +++\n wflib/task_executor.py                             |  71 +++\n wflib/templates.py                                 |  52 ++\n wflib/tmux.py                                      |  57 ++\n wflib/validate.py                                  |  59 ++\n wflib/worktree.py                                  |  83 +++\n 122 files changed, 1416 insertions(+), 1829 deletions(-)"
+    }
+  },
   "planningUsage": {
     "input": 0,
     "output": 0,
@@ -189,5 +355,6 @@
     "turns": 0
   },
   "planningModel": "nvinf-anthropic/aws/anthropic/bedrock-claude-opus-4-6",
-  "planFile": "docs/plans/04da-phase-0-scaffol.md"
+  "planFile": "docs/plans/04da-phase-0-scaffol.md",
+  "baseCommit": "09e137c8b21bb01cd4475efb5157720a3873d6fe"
 }
