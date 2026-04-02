@@ -18,11 +18,11 @@ class MockProfile:
 
     def resolve_model(self, name: str, models_config: ModelsConfig) -> str:
         """Resolve aliases, no harness-specific mapping."""
-        raise NotImplementedError("MockProfile.resolve_model: not yet implemented")
+        return resolve_alias(name, models_config)
 
     def list_models(self, models_config: ModelsConfig) -> list[tuple[str, str]]:
         """Mock doesn't have real models."""
-        raise NotImplementedError("MockProfile.list_models: not yet implemented")
+        return []
 
     def build_headless_cmd(self, *,
         system_prompt_file: str,
@@ -33,7 +33,8 @@ class MockProfile:
         models_config: ModelsConfig | None = None,
     ) -> list[str]:
         """Build command for the mock agent."""
-        raise NotImplementedError("MockProfile.build_headless_cmd: not yet implemented")
+        mock_agent = cmd_override or f"{self._wf_dir}/tests/e2e/mock_agent.py"
+        return ["python3", mock_agent, prompt]
 
     def build_tmux_wrapper(self, **kwargs) -> str:
         """Mock profile does not support tmux."""
@@ -41,7 +42,7 @@ class MockProfile:
 
     def parse_headless_output(self, stdout: str) -> dict:
         """Mock agent writes results.json directly; stdout is ignored."""
-        raise NotImplementedError("MockProfile.parse_headless_output: not yet implemented")
+        return {}
 
     def parse_session_output(self, session_dir: str, results_file: str) -> dict:
         """Mock profile does not have sessions."""
@@ -49,7 +50,7 @@ class MockProfile:
 
     def get_tool_paths(self) -> dict[str, str]:
         """Mock agent doesn't need tool extensions."""
-        raise NotImplementedError("MockProfile.get_tool_paths: not yet implemented")
+        return {}
 
     @property
     def supports_tmux(self) -> bool:

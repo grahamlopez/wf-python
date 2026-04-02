@@ -6,6 +6,7 @@ Encodes everything needed to spawn and read results from the Claude Code harness
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from adapters import claude_stream_json
 from profiles import resolve_alias, wf_dir
@@ -27,15 +28,34 @@ class ClaudeCodeProfile:
 
     def _effective_map(self, models_config: ModelsConfig) -> dict[str, str | None]:
         """Merge built-in MODEL_MAP with config [models.claude-code] overrides."""
-        raise NotImplementedError("ClaudeCodeProfile._effective_map: not yet implemented")
+        merged = dict(self.BUILTIN_MODEL_MAP)
+        merged.update(models_config.profiles.get(self.name, {}))
+        return merged
 
     def resolve_model(self, name: str, models_config: ModelsConfig) -> str:
         """Map a model name to the exact claude-specific string."""
-        raise NotImplementedError("ClaudeCodeProfile.resolve_model: not yet implemented")
+        canonical = resolve_alias(name, models_config)
+        model_map = self._effective_map(models_config)
+        if canonical in model_map:
+            mapped = model_map[canonical]
+            if mapped is None:
+                available = ", ".join(
+                    key for key, value in model_map.items() if value is not None
+                )
+                raise ValueError(
+                    f"Model '{name}' (canonical: '{canonical}') is not available "
+                    f"on the claude-code harness. Available models: {available}"
+                )
+            return mapped
+        return canonical
 
     def list_models(self, models_config: ModelsConfig) -> list[tuple[str, str]]:
         """Return (canonical_name, harness_id) pairs for all models."""
-        raise NotImplementedError("ClaudeCodeProfile.list_models: not yet implemented")
+        return [
+            (name, harness_id)
+            for name, harness_id in self._effective_map(models_config).items()
+            if harness_id is not None
+        ]
 
     def build_headless_cmd(self, *,
         system_prompt_file: str,
@@ -46,7 +66,27 @@ class ClaudeCodeProfile:
         models_config: ModelsConfig | None = None,
     ) -> list[str]:
         """Build the full argv for headless claude execution."""
-        raise NotImplementedError("ClaudeCodeProfile.build_headless_cmd: not yet implemented")
+        cmd = cmd_override or "claude"
+        args = [
+            cmd,
+            "-p",
+            "--bare",
+            "--output-format",
+            "stream-json",
+            "--append-system-prompt-file",
+            system_prompt_file,
+        ]
+
+        if tools:
+            mcp_config = self._build_mcp_config(tools)
+            args += ["--mcp-config", json.dumps(mcp_config)]
+
+        if model:
+            config = models_config or ModelsConfig()
+            args += ["--model", self.resolve_model(model, config)]
+
+        args.append(prompt)
+        return args
 
     def build_tmux_wrapper(self, **kwargs) -> str:
         """Claude Code tmux support is not yet implemented."""
@@ -57,7 +97,7 @@ class ClaudeCodeProfile:
 
     def parse_headless_output(self, stdout: str) -> dict:
         """Parse captured stdout from headless mode."""
-        raise NotImplementedError("ClaudeCodeProfile.parse_headless_output: not yet implemented")
+        return claude_stream_json.parse(stdout)
 
     def parse_session_output(self, session_dir: str, results_file: str) -> dict:
         """Parse session/results from tmux mode."""
@@ -65,7 +105,12 @@ class ClaudeCodeProfile:
 
     def get_tool_paths(self) -> dict[str, str]:
         """Map tool names to MCP server paths."""
-        raise NotImplementedError("ClaudeCodeProfile.get_tool_paths: not yet implemented")
+        mcp_path = f"mcp://{self._wf_dir}/tools/mcp_server.py"
+        return {
+            "report-result": mcp_path,
+            "submit-plan": mcp_path,
+            "record-brainstorm": mcp_path,
+        }
 
     @property
     def supports_tmux(self) -> bool:
@@ -73,7 +118,18 @@ class ClaudeCodeProfile:
 
     def _build_mcp_config(self, tools: list[str]) -> dict:
         """Build MCP server config that exposes the requested tools."""
-        raise NotImplementedError("ClaudeCodeProfile._build_mcp_config: not yet implemented")
+        return {
+            "mcpServers": {
+                "wf-tools": {
+                    "command": "python3",
+                    "args": [
+                        f"{self._wf_dir}/tools/mcp_server.py",
+                        "--tools",
+                        ",".join(tools),
+                    ],
+                }
+            }
+        }
 
     @property
     def _wf_dir(self) -> str:

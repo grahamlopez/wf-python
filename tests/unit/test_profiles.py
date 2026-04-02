@@ -176,41 +176,83 @@ class TestPiCommandConstruction(unittest.TestCase):
 
 
 class TestClaudeCodeModelResolution(unittest.TestCase):
-    @unittest.skip("Phase 3")
     def test_anthropic_identity(self):
         """Anthropic models map to themselves on claude-code."""
+        profile = ClaudeCodeProfile()
+        self.assertEqual(
+            profile.resolve_model("claude-opus-4", ModelsConfig()),
+            "claude-opus-4",
+        )
 
-    @unittest.skip("Phase 3")
     def test_unavailable_model_raises(self):
         """'gpt-4o' raises ValueError on claude-code (not available)."""
+        profile = ClaudeCodeProfile()
+        with self.assertRaisesRegex(ValueError, "Available models"):
+            profile.resolve_model("gpt-4o", ModelsConfig())
 
 
 class TestClaudeCodeCommandConstruction(unittest.TestCase):
-    @unittest.skip("Phase 3")
     def test_headless_cmd_basic(self):
         """build_headless_cmd produces correct base argv for claude."""
+        profile = ClaudeCodeProfile()
+        cmd = profile.build_headless_cmd(
+            system_prompt_file="system.md",
+            model=None,
+            tools=[],
+            prompt="hello",
+            models_config=ModelsConfig(),
+        )
+        self.assertEqual(
+            cmd[:5],
+            ["claude", "-p", "--bare", "--output-format", "stream-json"],
+        )
+        self.assertIn("--append-system-prompt-file", cmd)
+        self.assertEqual(cmd[-1], "hello")
 
-    @unittest.skip("Phase 3")
     def test_headless_cmd_with_mcp_tools(self):
         """build_headless_cmd includes --mcp-config for tools."""
+        profile = ClaudeCodeProfile()
+        cmd = profile.build_headless_cmd(
+            system_prompt_file="system.md",
+            model=None,
+            tools=["report-result"],
+            prompt="hello",
+            models_config=ModelsConfig(),
+        )
+        self.assertIn("--mcp-config", cmd)
 
-    @unittest.skip("Phase 3")
     def test_tmux_not_supported(self):
         """build_tmux_wrapper raises NotImplementedError."""
+        profile = ClaudeCodeProfile()
+        with self.assertRaises(NotImplementedError):
+            profile.build_tmux_wrapper()
 
 
 class TestMockProfile(unittest.TestCase):
-    @unittest.skip("Phase 3")
     def test_headless_cmd(self):
         """build_headless_cmd returns mock agent invocation."""
+        profile = MockProfile()
+        cmd = profile.build_headless_cmd(
+            system_prompt_file="system.md",
+            model=None,
+            tools=[],
+            prompt="brief.md",
+            models_config=ModelsConfig(),
+        )
+        self.assertEqual(cmd[0], "python3")
+        self.assertTrue(cmd[1].endswith("tests/e2e/mock_agent.py"))
+        self.assertEqual(cmd[2], "brief.md")
 
-    @unittest.skip("Phase 3")
     def test_tmux_not_supported(self):
         """build_tmux_wrapper raises NotImplementedError."""
+        profile = MockProfile()
+        with self.assertRaises(NotImplementedError):
+            profile.build_tmux_wrapper()
 
-    @unittest.skip("Phase 3")
     def test_list_models_empty(self):
         """list_models returns empty list."""
+        profile = MockProfile()
+        self.assertEqual(profile.list_models(ModelsConfig()), [])
 
 
 if __name__ == "__main__":
