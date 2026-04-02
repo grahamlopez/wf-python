@@ -93,6 +93,12 @@ def merge_back(main_cwd: str, wt: WorktreeInfo) -> MergeResult:
     """Rebase onto main, then fast-forward merge. Serialized by caller."""
     rebase_result = git(["rebase", wt.main_branch], cwd=wt.path)
     if not rebase_result.ok:
+        # Intentionally leave the rebase in-progress on conflict.
+        # The caller (task_executor._merge_and_cleanup) inspects the
+        # MergeResult, detects the conflict, and spawns a resolution
+        # agent that can resolve the conflicted files inside the
+        # worktree while the rebase is still active.  The resolution
+        # agent runs `git rebase --continue` or `--abort` once done.
         conflicts = rebase_result.stderr.strip() or rebase_result.stdout.strip() or None
         conflict_files = get_dirty_files(wt.path)
         return MergeResult(
@@ -183,10 +189,10 @@ def commit_or_amend_workflow_files(cwd: str, workflow_name: str) -> bool:
     if staged.stdout.strip() == "":
         return False
     message_result = git(["log", "-1", "--pretty=%s"], cwd=cwd)
-    if not message_result.ok:
-        raise RuntimeError(message_result.stderr.strip() or "git log failed")
-    last_message = message_result.stdout.strip()
-    if last_message.startswith("[workflow"):
+    # In a brand-new repo with no commits yet, `git log` will fail.
+    # Treat that the same as "no previous workflow commit" and fall
+    # through to a fresh commit.
+    if message_result.ok and message_result.stdout.strip().startswith("[workflow"):
         commit_result = git(["commit", "--amend", "--no-edit"], cwd=cwd)
     else:
         message = f"[workflow] {workflow_name}: update record"

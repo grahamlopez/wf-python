@@ -333,6 +333,36 @@ class TestWorkflowCommitOperations(unittest.TestCase):
             ).stdout.strip()
             self.assertEqual(message, "[workflow] flow: update record")
 
+    def test_commit_or_amend_workflow_files_no_prior_commits(self):
+        """Fresh commit on a brand-new repo with no prior commits."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = Path(tmp_dir) / "empty_repo"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=repo, check=True, capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"],
+                cwd=repo, check=True, capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["git", "checkout", "-b", "main"],
+                cwd=repo, check=True, capture_output=True, text=True,
+            )
+            # No commits exist yet — git log -1 will fail
+            docs_dir = repo / "docs" / "workflows"
+            docs_dir.mkdir(parents=True)
+            (docs_dir / "record.json").write_text('{"v": 1}\n')
+            committed = commit_or_amend_workflow_files(str(repo), "first")
+            self.assertTrue(committed)
+            message = subprocess.run(
+                ["git", "log", "-1", "--pretty=%s"],
+                cwd=repo, check=True, capture_output=True, text=True,
+            ).stdout.strip()
+            self.assertEqual(message, "[workflow] first: update record")
+
     def test_commit_remaining_changes(self):
         """Commits staged changes or returns False when clean."""
         with tempfile.TemporaryDirectory() as tmp_dir:
