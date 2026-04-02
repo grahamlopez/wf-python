@@ -129,14 +129,18 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 - Integration tests: `test_git.py`, `test_record.py`, `test_worktree.py` now run with zero Phase 2 skips.
 
 **Intentional deviations from spec:**
-1. **None.** Phase 2 matches the spec; no deviations were required.
+
+1. **`toRelative` path conversion deferred to Phase 4.** Phase 1 deviation #6 noted this should be added "once worktrees are wired up (Phase 2)." However, the path-relativization is a brief-assembly concern wired up by `task_executor.py`, not a worktree primitive. Deferred to Phase 4 (noted in Phase 4's tracking section).
+
+2. **`commit_or_amend_workflow_files` amend detection is broader than spec.** The spec says "amends if last commit is `[workflow-init]`". The implementation amends if the last commit message starts with `[workflow` (any workflow-prefixed commit). This is intentionally broader — it also amends `[workflow] name: update record` commits from previous `commit_or_amend_workflow_files` calls, which is the correct behavior for the repeated-save pattern during execution (each record save amends the same commit rather than creating a new one).
 
 **Lessons learned:**
 - Worktree cleanup and branch removal must be idempotent to keep repeated runs safe in temp repos.
 - Rebase-first merge flows need explicit conflict reporting to keep the caller in control of recovery steps.
 - Excluding `docs/workflows/` from task commits prevents record churn while task worktrees iterate.
+- **Test skeleton coverage != implementation coverage.** The Phase 0 test skeletons only covered the "happy path" functions. Several important functions (`list_records`, `record_review`, `record_implementation_start`, `get_implementation_state`) have no dedicated integration tests. These will get exercised by E2E tests in Phase 4 but lack isolated unit-level coverage. Future Phase 0 scaffolds should include test stubs for every public function.
 
-**Spec adjustments:** None needed.
+**Spec adjustments:** None needed. Deviation #5 (broader amend detection) is a deliberate improvement compatible with the spec's intent.
 
 ---
 
@@ -171,6 +175,7 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 - **Finding #6:** crash-recovery fixture `_comment` added in Phase 0, but the E2E test setup must actually create pre-crash state where all tasks were running (none completed), then verify all reset to pending
 - **Finding #7:** `scheduler.py` → `render.py` cross-module import comment added in Phase 0 — implement `ExecutionSummary` with `UsageRow` integration per spec
 - **Note:** `help.py` routing/scaffolding and topic registry are already in place (Phase 0 review fixup). Remaining work is writing the actual ~800 lines of topic content.
+- **Deferred from Phase 2:** `brief.py` `toRelative` path conversion (Phase 1 deviation #6). Should be wired up when `task_executor.py` assembles briefs with worktree paths.
 
 **Resolved early:**
 - **Finding #13:** `bin/wf` now aliases no-args to `wf help topics` and `wf help` routes to the help module

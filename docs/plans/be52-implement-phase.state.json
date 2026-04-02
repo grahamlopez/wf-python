@@ -197,15 +197,161 @@
   },
   "planId": "be52",
   "statuses": {
-    "task-1": "pending",
-    "task-2": "pending",
-    "task-3": "pending",
-    "task-4": "pending",
-    "task-5": "pending",
-    "task-6": "pending",
-    "task-7": "pending"
+    "task-1": "done",
+    "task-2": "done",
+    "task-3": "done",
+    "task-4": "done",
+    "task-5": "done",
+    "task-6": "done",
+    "task-7": "done"
   },
-  "results": {},
+  "results": {
+    "task-2": {
+      "taskId": "task-2",
+      "title": "Implement log.py — debug logging",
+      "exitCode": 0,
+      "summary": "Implemented debug logging to append JSONL entries with timestamps and added compact task status snapshots.",
+      "filesChanged": [
+        "wflib/log.py"
+      ],
+      "notes": "None.",
+      "usage": {
+        "input": 17494,
+        "output": 1025,
+        "cacheRead": 11264,
+        "cacheWrite": 0,
+        "cost": 0.055956200000000005,
+        "turns": 5
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "wflib/log.py | 23 +++++++++++++++++++++--\n 1 file changed, 21 insertions(+), 2 deletions(-)"
+    },
+    "task-1": {
+      "taskId": "task-1",
+      "title": "Implement git.py — thin git wrapper",
+      "exitCode": 0,
+      "summary": "Implemented the git wrapper functions and filled in integration tests for git behaviors using real temporary repositories. All git integration tests pass.",
+      "filesChanged": [
+        "wflib/git.py",
+        "tests/integration/test_git.py"
+      ],
+      "notes": "`python3 -m pytest tests/integration/test_git.py` passes (13 tests).",
+      "usage": {
+        "input": 15728,
+        "output": 7786,
+        "cacheRead": 100736,
+        "cacheWrite": 0,
+        "cost": 0.1348088,
+        "turns": 11
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "tests/integration/test_git.py | 105 +++++++++++++++++++++++++++++++++++++-----\n wflib/git.py                  |  56 +++++++++++++++++++---\n wflib/log.py                  |  23 +--------\n 3 files changed, 144 insertions(+), 40 deletions(-)"
+    },
+    "task-3": {
+      "taskId": "task-3",
+      "title": "Implement record.py — CRUD and query helpers",
+      "exitCode": 0,
+      "summary": "Implemented record CRUD/query helpers with atomic writes, deserialization, and usage aggregation, plus integration tests for create/load/save/query behavior. All targeted integration tests now pass.",
+      "filesChanged": [
+        "wflib/record.py",
+        "tests/integration/test_record.py"
+      ],
+      "notes": "None.",
+      "usage": {
+        "input": 68666,
+        "output": 11630,
+        "cacheRead": 525568,
+        "cacheWrite": 0,
+        "cost": 0.37993940000000004,
+        "turns": 24
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "tests/integration/test_git.py    | 105 +++-------------------\n tests/integration/test_record.py | 183 ++++++++++++++++++++++++++++++++++++---\n wflib/git.py                     |  56 ++----------\n wflib/log.py                     |  23 +----\n wflib/record.py                  | 129 +++++++++++++++++++++++++--\n 5 files changed, 312 insertions(+), 184 deletions(-)"
+    },
+    "task-5": {
+      "taskId": "task-5",
+      "title": "Implement worktree.py — task worktree lifecycle",
+      "exitCode": 0,
+      "summary": "Implemented task worktree lifecycle functions (create/setup/symlink/commit/merge/cleanup) and filled in integration tests for task worktree behaviors. All task-focused worktree integration tests now pass.",
+      "filesChanged": [
+        "wflib/worktree.py",
+        "tests/integration/test_worktree.py"
+      ],
+      "notes": "- Ran: `python3 -m pytest tests/integration/test_worktree.py -k 'not TestWorkflowWorktree'`",
+      "usage": {
+        "input": 86505,
+        "output": 14462,
+        "cacheRead": 189312,
+        "cacheWrite": 0,
+        "cost": 0.3940121000000001,
+        "turns": 16
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "tests/integration/test_record.py   | 183 +++-----------------------------\n tests/integration/test_worktree.py | 208 ++++++++++++++++++++++++++++++++++---\n wflib/record.py                    | 129 ++---------------------\n wflib/worktree.py                  |  67 ++++++++++--\n 4 files changed, 275 insertions(+), 312 deletions(-)"
+    },
+    "task-4": {
+      "taskId": "task-4",
+      "title": "Implement record.py — phase transitions and event tracking",
+      "exitCode": 0,
+      "summary": "Implemented phase transition, task tracking, event, review, fixup, and close logic in `wflib/record.py` and filled in the integration tests for those behaviors. All integration and unit tests run clean.",
+      "filesChanged": [
+        "wflib/record.py",
+        "tests/integration/test_record.py"
+      ],
+      "notes": "Tests run: `python3 -m pytest tests/integration/test_record.py`, `python3 -m pytest tests/unit/`.",
+      "usage": {
+        "input": 51601,
+        "output": 10243,
+        "cacheRead": 291840,
+        "cacheWrite": 0,
+        "cost": 0.28250450000000005,
+        "turns": 20
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "tests/integration/test_record.py   | 139 +++++++++++++++++++++++--\n tests/integration/test_worktree.py | 208 +++----------------------------------\n wflib/record.py                    | 109 +++++++++++++++++--\n wflib/worktree.py                  |  67 ++----------\n 4 files changed, 248 insertions(+), 275 deletions(-)"
+    },
+    "task-6": {
+      "taskId": "task-6",
+      "title": "Implement worktree.py — workflow worktree lifecycle",
+      "exitCode": 0,
+      "summary": "Implemented workflow worktree lifecycle functions (create, close, commit/amend, commit remaining) and added comprehensive integration tests for workflow worktrees and commit behavior. Verified new tests pass.",
+      "filesChanged": [
+        "wflib/worktree.py",
+        "tests/integration/test_worktree.py"
+      ],
+      "notes": "Ran `python3 -m pytest tests/integration/test_worktree.py -k 'WorkflowWorktree or WorkflowCommitOperations'` to validate the new tests.",
+      "usage": {
+        "input": 35661,
+        "output": 15989,
+        "cacheRead": 272896,
+        "cacheWrite": 0,
+        "cost": 0.29679930000000004,
+        "turns": 10
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "tests/integration/test_record.py   | 139 +++----------------------------\n tests/integration/test_worktree.py | 164 ++++++++++++++++++++++++++++++++++++-\n wflib/record.py                    | 109 +++---------------------\n wflib/worktree.py                  |  84 +++++++++++++++++--\n 4 files changed, 261 insertions(+), 235 deletions(-)"
+    },
+    "task-7": {
+      "taskId": "task-7",
+      "title": "Update implementation tracker for Phase 2",
+      "exitCode": 0,
+      "summary": "Updated the Phase 2 tracker section and status table with completion details, implementation summary, deviations, lessons learned, and the full pytest counts.",
+      "filesChanged": [
+        "docs/plans/implementation-tracker.md"
+      ],
+      "notes": "Ran `python3 -m pytest tests/ --tb=short` → `288 passed, 133 skipped` (Phase 3+ skips only).",
+      "usage": {
+        "input": 19000,
+        "output": 3518,
+        "cacheRead": 116224,
+        "cacheWrite": 0,
+        "cost": 0.1030192,
+        "turns": 10
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "docs/plans/implementation-tracker.md | 25 ++++++++++++++++++++-----\n 1 file changed, 20 insertions(+), 5 deletions(-)"
+    }
+  },
   "planningUsage": {
     "input": 0,
     "output": 0,
@@ -215,5 +361,6 @@
     "turns": 0
   },
   "planningModel": "nvinf-anthropic/aws/anthropic/bedrock-claude-opus-4-6",
-  "planFile": "docs/plans/be52-implement-phase.md"
+  "planFile": "docs/plans/be52-implement-phase.md",
+  "baseCommit": "a65dd77c6589651d9031542f804a38cf3f553cc5"
 }
