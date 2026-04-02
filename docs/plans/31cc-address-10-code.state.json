@@ -74,11 +74,77 @@
   },
   "planId": "31cc",
   "statuses": {
-    "task-1": "pending",
-    "task-2": "pending",
-    "task-3": "pending"
+    "task-1": "done",
+    "task-2": "done",
+    "task-3": "done"
   },
-  "results": {},
+  "results": {
+    "task-3": {
+      "taskId": "task-3",
+      "title": "Add git.py porcelain comment and fix test init_repo duplication",
+      "exitCode": 0,
+      "summary": "Added a comment in `get_dirty_files` explaining the `--porcelain` column layout and rename handling, and replaced the manual repo setup in `test_commit_or_amend_workflow_files_no_prior_commits` with `init_repo(Path(tmp_dir), with_commit=False)`.",
+      "filesChanged": [
+        "wflib/git.py",
+        "tests/integration/test_worktree.py"
+      ],
+      "notes": "The `subprocess.run` count in `test_worktree.py` dropped from 29 to 25, confirming the 4 manual init calls were removed. Test assertions and behavior are unchanged.",
+      "usage": {
+        "input": 3795,
+        "output": 2133,
+        "cacheRead": 47403,
+        "cacheWrite": 13305,
+        "cost": 0.17915775,
+        "turns": 6
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "tests/integration/test_worktree.py | 16 +---------------\n wflib/git.py                       |  3 +++\n 2 files changed, 4 insertions(+), 15 deletions(-)"
+    },
+    "task-1": {
+      "taskId": "task-1",
+      "title": "Extract shared timestamp utility, fix float precision, add list_records test, clean up imports",
+      "exitCode": 0,
+      "summary": "Addressed all four findings: extracted `utc_now_iso()` into `wflib/_util.py` shared by both `record.py` and `log.py`, cleaned up unused imports in `test_record.py` (removed `get_implementation_state`, `record_implementation_start`, `record_review`), added `round(total.cost, 6)` in `get_total_usage`, and added a `TestListRecords` test that verifies valid records are returned and malformed files produce a stderr warning. Tests: 290 passed (up from 289), 133 skipped.",
+      "filesChanged": [
+        "wflib/_util.py",
+        "wflib/record.py",
+        "wflib/log.py",
+        "tests/integration/test_record.py"
+      ],
+      "notes": "- Kept `_now_iso = utc_now_iso` alias in `record.py` to avoid touching every internal call site — all ~14 usages continue working through the alias, and there's a single canonical definition in `_util.py`.\n- The `round(total.cost, 6)` fix addresses float accumulation drift (e.g., `0.1 + 0.2 = 0.30000000000000004`).",
+      "usage": {
+        "input": 3945,
+        "output": 3415,
+        "cacheRead": 151724,
+        "cacheWrite": 15934,
+        "cost": 0.2805495,
+        "turns": 13
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "tests/integration/test_record.py   | 36 +++++++++++++++++++++++++++++++++---\n tests/integration/test_worktree.py | 16 +++++++++++++++-\n wflib/_util.py                     | 10 ++++++++++\n wflib/git.py                       |  3 ---\n wflib/log.py                       |  4 ++--\n wflib/record.py                    |  7 ++++---\n 6 files changed, 64 insertions(+), 12 deletions(-)"
+    },
+    "task-2": {
+      "taskId": "task-2",
+      "title": "Extract commit helper, harden hook execution, type merge_state, document close cleanup",
+      "exitCode": 0,
+      "summary": "Extracted `_stage_and_commit(cwd, add_args, commit_args)` helper in worktree.py (used by 3 callers), hardened `.worktree-setup` hook execution with `capture_output`/`text`/`timeout`/error wrapping, added `MergeState = Literal['clean', 'conflicted', 'failed']` type alias in types.py (used in both `CloseRecord` and `WorkflowCloseResult`), and documented cleanup responsibility in `close_workflow_worktree`'s docstring.",
+      "filesChanged": [
+        "wflib/types.py",
+        "wflib/worktree.py"
+      ],
+      "notes": "",
+      "usage": {
+        "input": 3934,
+        "output": 5427,
+        "cacheRead": 159800,
+        "cacheWrite": 28224,
+        "cost": 0.411645,
+        "turns": 9
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "tests/integration/test_record.py   | 36 ++--------------\n tests/integration/test_worktree.py | 16 +++++++-\n wflib/_util.py                     | 10 -----\n wflib/git.py                       |  3 --\n wflib/log.py                       |  4 +-\n wflib/record.py                    |  7 ++--\n wflib/types.py                     |  9 +++-\n wflib/worktree.py                  | 84 ++++++++++++++++++++++----------------\n 8 files changed, 78 insertions(+), 91 deletions(-)"
+    }
+  },
   "planningUsage": {
     "input": 0,
     "output": 0,
@@ -88,5 +154,6 @@
     "turns": 0
   },
   "planningModel": "nvinf-anthropic/aws/anthropic/bedrock-claude-opus-4-6",
-  "planFile": "docs/plans/31cc-address-10-code.md"
+  "planFile": "docs/plans/31cc-address-10-code.md",
+  "baseCommit": "899970675ac8b131cd3bb64eb441aff4b522f5a8"
 }
