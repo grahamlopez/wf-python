@@ -71,7 +71,7 @@ def create_record(
         raise FileExistsError(f"Record '{name}' already exists")
 
     workflow_id = secrets.token_hex(2)
-    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    created_at = _now_iso()
     meta = WorkflowMeta(
         id=workflow_id,
         name=name,
@@ -239,14 +239,21 @@ def record_task_complete(record: WorkflowRecord, task_id: str, result: TaskResul
     )
 
 
-def record_event(record: WorkflowRecord, event: str, task: str | None = None, detail: str | None = None) -> None:
-    """Append an operational event to implementation.events."""
+def record_event(record: WorkflowRecord, event: ImplementationEventType, task: str | None = None, detail: str | None = None) -> None:
+    """Append an operational event to implementation.events.
+
+    Args:
+        record: The workflow record to update.
+        event: The event type (must be an ImplementationEventType enum member).
+        task: Optional task ID associated with the event.
+        detail: Optional detail string.
+    """
     if record.implementation is None:
         record.implementation = ImplementationRecord()
     record.implementation.events.append(
         ImplementationEvent(
             t=_now_iso(),
-            event=ImplementationEventType(event),
+            event=event,
             task=task,
             detail=detail,
         )

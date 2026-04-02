@@ -259,7 +259,7 @@ class TestEvents(unittest.TestCase):
         record = _base_record(status=WorkflowStatus.IMPLEMENTING)
         record.implementation = ImplementationRecord()
 
-        record_event(record, "mergeStart", task="task-1", detail="Start merge")
+        record_event(record, ImplementationEventType.MERGE_START, task="task-1", detail="Start merge")
 
         self.assertEqual(len(record.implementation.events), 1)
         event = record.implementation.events[0]
@@ -272,7 +272,7 @@ class TestEvents(unittest.TestCase):
         record = _base_record(status=WorkflowStatus.IMPLEMENTING)
         record.implementation = ImplementationRecord()
 
-        record_event(record, "mergeComplete")
+        record_event(record, ImplementationEventType.MERGE_COMPLETE)
 
         event = record.implementation.events[0]
         self.assertTrue(event.t)
