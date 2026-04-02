@@ -70,39 +70,109 @@ class TestResolveAlias(unittest.TestCase):
 
 
 class TestPiModelResolution(unittest.TestCase):
-    @unittest.skip("Phase 3")
     def test_canonical_anthropic_identity(self):
         """Anthropic models map to themselves on pi."""
+        profile = PiProfile()
+        self.assertEqual(
+            profile.resolve_model("claude-sonnet-4-5", ModelsConfig()),
+            "claude-sonnet-4-5",
+        )
 
-    @unittest.skip("Phase 3")
     def test_gpt4o_maps_to_openai_prefix(self):
         """'gpt-4o' maps to 'openai/gpt-4o' on pi."""
+        profile = PiProfile()
+        self.assertEqual(
+            profile.resolve_model("gpt-4o", ModelsConfig()),
+            "openai/gpt-4o",
+        )
 
-    @unittest.skip("Phase 3")
     def test_config_override(self):
         """Config [models.pi] overrides built-in mapping."""
+        profile = PiProfile()
+        models_config = ModelsConfig(profiles={"pi": {"gpt-4o": "custom/gpt-4o"}})
+        self.assertEqual(
+            profile.resolve_model("gpt-4o", models_config),
+            "custom/gpt-4o",
+        )
 
-    @unittest.skip("Phase 3")
     def test_unknown_passthrough(self):
         """Unknown model names pass through verbatim."""
+        profile = PiProfile()
+        self.assertEqual(
+            profile.resolve_model("custom-model", ModelsConfig()),
+            "custom-model",
+        )
 
 
 class TestPiCommandConstruction(unittest.TestCase):
-    @unittest.skip("Phase 3")
     def test_headless_cmd_basic(self):
         """build_headless_cmd produces correct base argv."""
+        profile = PiProfile()
+        system_prompt = "/tmp/system.md"
+        cmd = profile.build_headless_cmd(
+            system_prompt_file=system_prompt,
+            model=None,
+            tools=[],
+            prompt="Hello",
+        )
+        self.assertEqual(
+            cmd,
+            [
+                "pi",
+                "--mode",
+                "json",
+                "-p",
+                "--no-session",
+                "--no-extensions",
+                "--append-system-prompt",
+                system_prompt,
+                "-e",
+                f"{profile._ext_dir}/research.ts",
+                "-e",
+                f"{profile._ext_dir}/web-fetch/index.ts",
+                "Hello",
+            ],
+        )
 
-    @unittest.skip("Phase 3")
     def test_headless_cmd_with_model(self):
         """build_headless_cmd includes --model flag when model specified."""
+        profile = PiProfile()
+        cmd = profile.build_headless_cmd(
+            system_prompt_file="/tmp/system.md",
+            model="sonnet",
+            tools=[],
+            prompt="Hello",
+        )
+        model_index = cmd.index("--model")
+        self.assertEqual(cmd[model_index + 1], "claude-sonnet-4-5")
 
-    @unittest.skip("Phase 3")
     def test_headless_cmd_with_tools(self):
         """build_headless_cmd includes -e flags for requested tools."""
+        profile = PiProfile()
+        tools = ["report-result", "submit-plan"]
+        cmd = profile.build_headless_cmd(
+            system_prompt_file="/tmp/system.md",
+            model=None,
+            tools=tools,
+            prompt="Hello",
+        )
+        tool_paths = profile.get_tool_paths()
+        for tool in tools:
+            tool_path = tool_paths[tool]
+            self.assertIn(tool_path, cmd)
+            self.assertEqual(cmd[cmd.index(tool_path) - 1], "-e")
 
-    @unittest.skip("Phase 3")
     def test_headless_cmd_override(self):
         """cmd_override replaces the default binary path."""
+        profile = PiProfile()
+        cmd = profile.build_headless_cmd(
+            system_prompt_file="/tmp/system.md",
+            model=None,
+            tools=[],
+            prompt="Hello",
+            cmd_override="/opt/custom/pi",
+        )
+        self.assertEqual(cmd[0], "/opt/custom/pi")
 
 
 class TestClaudeCodeModelResolution(unittest.TestCase):

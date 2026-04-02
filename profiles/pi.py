@@ -6,6 +6,7 @@ Encodes everything needed to spawn and read results from the pi agent harness.
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 
 from adapters import pi_json_mode, pi_session
 from profiles import resolve_alias, wf_dir
@@ -27,15 +28,31 @@ class PiProfile:
 
     def _effective_map(self, models_config: ModelsConfig) -> dict[str, str | None]:
         """Merge built-in MODEL_MAP with config [models.pi] overrides."""
-        raise NotImplementedError("PiProfile._effective_map: not yet implemented")
+        merged = dict(self.BUILTIN_MODEL_MAP)
+        merged.update(models_config.profiles.get(self.name, {}))
+        return merged
 
     def resolve_model(self, name: str, models_config: ModelsConfig) -> str:
         """Map a model name to the exact pi-specific string."""
-        raise NotImplementedError("PiProfile.resolve_model: not yet implemented")
+        canonical = resolve_alias(name, models_config)
+        model_map = self._effective_map(models_config)
+        if canonical in model_map:
+            mapped = model_map[canonical]
+            if mapped is None:
+                raise ValueError(
+                    f"Model '{name}' (canonical: '{canonical}') is not available "
+                    "on the pi harness."
+                )
+            return mapped
+        return canonical
 
     def list_models(self, models_config: ModelsConfig) -> list[tuple[str, str]]:
         """Return (canonical_name, harness_id) pairs for all models."""
-        raise NotImplementedError("PiProfile.list_models: not yet implemented")
+        return [
+            (name, harness_id)
+            for name, harness_id in self._effective_map(models_config).items()
+            if harness_id is not None
+        ]
 
     def build_headless_cmd(self, *,
         system_prompt_file: str,
@@ -46,7 +63,32 @@ class PiProfile:
         models_config: ModelsConfig | None = None,
     ) -> list[str]:
         """Build the full argv for headless pi execution."""
-        raise NotImplementedError("PiProfile.build_headless_cmd: not yet implemented")
+        cmd = cmd_override or "pi"
+        args = [
+            cmd,
+            "--mode",
+            "json",
+            "-p",
+            "--no-session",
+            "--no-extensions",
+            "--append-system-prompt",
+            system_prompt_file,
+        ]
+        args += [
+            "-e",
+            f"{self._ext_dir}/research.ts",
+            "-e",
+            f"{self._ext_dir}/web-fetch/index.ts",
+        ]
+        tool_paths = self.get_tool_paths()
+        for tool in tools:
+            if tool in tool_paths:
+                args += ["-e", tool_paths[tool]]
+        if model:
+            mc = models_config or ModelsConfig()
+            args += ["--model", self.resolve_model(model, mc)]
+        args.append(prompt)
+        return args
 
     def build_tmux_wrapper(self, *,
         system_prompt_file: str,
@@ -61,19 +103,61 @@ class PiProfile:
         models_config: ModelsConfig | None = None,
     ) -> str:
         """Generate a bash wrapper for tmux execution."""
-        raise NotImplementedError("PiProfile.build_tmux_wrapper: not yet implemented")
+        cmd = cmd_override or "pi"
+        pi_args = [
+            "--no-extensions",
+            "--append-system-prompt",
+            system_prompt_file,
+            "--session-dir",
+            session_dir,
+        ]
+        pi_args += [
+            "-e",
+            f"{self._ext_dir}/research.ts",
+            "-e",
+            f"{self._ext_dir}/web-fetch/index.ts",
+        ]
+        tool_paths = self.get_tool_paths()
+        for tool in tools:
+            if tool in tool_paths:
+                pi_args += ["-e", tool_paths[tool]]
+        if auto_close and auto_close > 0:
+            pi_args += ["-e", f"{self._ext_dir}/planner/auto-quit.ts"]
+        if model:
+            mc = models_config or ModelsConfig()
+            pi_args += ["--model", self.resolve_model(model, mc)]
+        pi_args.append(f"@{prompt_file}")
+
+        adapter_cmd = (
+            f"python3 {self._wf_dir}/adapters/pi_session.py "
+            f"{session_dir} {results_file}"
+        )
+
+        return f"""#!/bin/bash
+RESULT_FILE='{exit_code_file}'
+_cleanup() {{ if [ ! -f \"$RESULT_FILE\" ]; then echo 1 > \"$RESULT_FILE\"; fi }}
+trap _cleanup EXIT HUP TERM INT
+{f'export PI_AUTO_CLOSE_DELAY={auto_close}' if auto_close and auto_close > 0 else ''}
+{cmd} {' '.join(shlex.quote(a) for a in pi_args)}
+{adapter_cmd}
+echo $? > \"$RESULT_FILE\"
+"""
 
     def parse_headless_output(self, stdout: str) -> dict:
         """Parse captured stdout from headless mode."""
-        raise NotImplementedError("PiProfile.parse_headless_output: not yet implemented")
+        return pi_json_mode.parse(stdout)
 
     def parse_session_output(self, session_dir: str, results_file: str) -> dict:
         """Parse session/results from tmux mode."""
-        raise NotImplementedError("PiProfile.parse_session_output: not yet implemented")
+        return pi_session.parse(session_dir, results_file)
 
     def get_tool_paths(self) -> dict[str, str]:
         """Map tool names to pi extension paths."""
-        raise NotImplementedError("PiProfile.get_tool_paths: not yet implemented")
+        return {
+            "report-result": f"{self._wf_dir}/tools/pi_extensions/report-result-tool.ts",
+            "submit-plan": f"{self._wf_dir}/tools/pi_extensions/submit-plan-tool.ts",
+            "record-brainstorm": f"{self._wf_dir}/tools/pi_extensions/record-brainstorm-tool.ts",
+        }
 
     @property
     def supports_tmux(self) -> bool:
