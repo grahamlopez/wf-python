@@ -208,7 +208,12 @@ def format_status(record: WorkflowRecord) -> str:
 
 
 def _compute_total_cost(record: WorkflowRecord) -> float:
-    """Sum up all usage costs in a record."""
+    """Sum up all usage costs in a record.
+
+    NOTE: When record.py's get_total_usage() is implemented (Phase 2),
+    this should delegate to get_total_usage(record).cost rather than
+    reimplementing the traversal.
+    """
     cost = 0.0
     if record.brainstorm:
         cost += record.brainstorm.usage.cost

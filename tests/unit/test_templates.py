@@ -31,8 +31,10 @@ class TestParseFrontmatter(unittest.TestCase):
 
     def test_empty_frontmatter(self):
         """Handles empty frontmatter (--- followed immediately by ---) — treated as no frontmatter."""
-        # When --- immediately follows ---, the closing delimiter can't be found
-        # (no content between them for the search to work), so it's treated as no frontmatter.
+        # parse_frontmatter starts searching for '\n---\n' at offset 4 (after the
+        # opening '---\n'). In '---\n---\n...', the potential match starts at
+        # offset 3 which is before the search start, so no closing delimiter is
+        # found and the content is returned as-is.
         content = "---\n---\nBody text here."
         meta, body = parse_frontmatter(content)
         self.assertEqual(meta, {})

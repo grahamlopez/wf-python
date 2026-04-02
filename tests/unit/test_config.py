@@ -408,6 +408,19 @@ class TestConfigSerialization(unittest.TestCase):
         self.assertEqual(restored.models.aliases, config.models.aliases)
         self.assertEqual(restored.models.profiles, config.models.profiles)
 
+    def test_models_alias_profile_same_key_survives(self):
+        """An alias and a profile with the same key both survive round-trip."""
+        config = WorkflowConfig(
+            models=ModelsConfig(
+                aliases={"fast": "claude-haiku-4-5"},
+                profiles={"fast": {"gpt-4o": "openai/gpt-4o"}},
+            )
+        )
+        d = config_to_dict(config)
+        restored = config_from_dict(d)
+        self.assertEqual(restored.models.aliases["fast"], "claude-haiku-4-5")
+        self.assertEqual(restored.models.profiles["fast"], {"gpt-4o": "openai/gpt-4o"})
+
 
 class TestSetConfigValue(unittest.TestCase):
     def setUp(self):
@@ -518,6 +531,34 @@ class TestSetConfigValue(unittest.TestCase):
             content = f.read()
         self.assertIn("[models]", content)
         self.assertIn("fast", content)
+
+    def test_dash_key_update_from_underscore(self):
+        """Setting auto_review finds and updates the TOML auto-review key."""
+        filepath = os.path.join(self.tmp, ".wf", "config.toml")
+        os.makedirs(os.path.dirname(filepath))
+        with open(filepath, "w") as f:
+            f.write('[execute]\nauto-review = true\n')
+
+        set_config_value(self.tmp, "execute.auto_review", "false", scope="project")
+        with open(filepath) as f:
+            content = f.read()
+        # Should update the existing dash-form key, not add a duplicate
+        self.assertIn("auto-review = false", content)
+        self.assertEqual(content.count("auto-review"), 1)
+        self.assertNotIn("auto_review", content)
+
+    def test_underscore_key_update_from_dash_input(self):
+        """Setting auto_close updates the TOML auto-close variant."""
+        filepath = os.path.join(self.tmp, ".wf", "config.toml")
+        os.makedirs(os.path.dirname(filepath))
+        with open(filepath, "w") as f:
+            f.write('[ui]\nauto-close = 30\n')
+
+        set_config_value(self.tmp, "ui.auto_close", "60", scope="project")
+        with open(filepath) as f:
+            content = f.read()
+        self.assertIn("auto-close = 60", content)
+        self.assertEqual(content.count("auto-close"), 1)
 
 
 class TestShowResolved(unittest.TestCase):

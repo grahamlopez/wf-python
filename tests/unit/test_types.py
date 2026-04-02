@@ -394,11 +394,8 @@ class TestToDict(unittest.TestCase):
         record = record_from_json(original_dict)
         result_dict = record_to_json(record)
 
-        # Compare as JSON strings (sorted keys) for deep equality
-        self.assertEqual(
-            json.dumps(result_dict, sort_keys=True),
-            json.dumps(original_dict, sort_keys=True)
-        )
+        # Direct dict comparison for better error messages on failure
+        self.assertEqual(result_dict, original_dict)
 
     def test_plan_to_json_omits_none_optionals(self):
         """plan_to_json omits None optional fields (skills, model)."""
@@ -804,6 +801,77 @@ class TestValidateSchema(unittest.TestCase):
         errors = validate_schema({}, "nonexistent")
         self.assertTrue(len(errors) > 0)
         self.assertIn("Unknown component", errors[0])
+
+
+class TestDictKeyPreservation(unittest.TestCase):
+    """Verify that data keys (task IDs, aliases, profile names) with
+    underscores are preserved as-is during serialization, not camelCase-converted.
+    """
+
+    def test_underscored_task_ids_preserved(self):
+        """Task IDs with underscores survive round-trip."""
+        impl = ImplementationRecord(
+            tasks={
+                "task_one": TaskResult(status=TaskStatus.DONE, summary="Done"),
+                "task_two": TaskResult(status=TaskStatus.FAILED, error="Oops"),
+            }
+        )
+        d = _dataclass_to_dict(impl)
+        self.assertIn("task_one", d["tasks"])
+        self.assertIn("task_two", d["tasks"])
+        # Must NOT be converted to taskOne / taskTwo
+        self.assertNotIn("taskOne", d["tasks"])
+        self.assertNotIn("taskTwo", d["tasks"])
+
+    def test_underscored_active_resources_preserved(self):
+        """Active resource keys with underscores survive serialization."""
+        impl = ImplementationRecord(
+            active_resources={"task_foo": "/path/to/worktree"}
+        )
+        d = _dataclass_to_dict(impl)
+        self.assertIn("task_foo", d["activeResources"])
+        self.assertNotIn("taskFoo", d["activeResources"])
+
+    def test_underscored_model_aliases_preserved(self):
+        """Model alias names with underscores survive serialization."""
+        models = ModelsConfig(
+            aliases={"my_alias": "claude-sonnet-4-5"},
+            profiles={"my_profile": {"gpt_4o": "openai/gpt-4o"}},
+        )
+        d = _dataclass_to_dict(models)
+        self.assertIn("my_alias", d["aliases"])
+        self.assertNotIn("myAlias", d["aliases"])
+        self.assertIn("my_profile", d["profiles"])
+        self.assertNotIn("myProfile", d["profiles"])
+        # Nested dict keys also preserved
+        self.assertIn("gpt_4o", d["profiles"]["my_profile"])
+        self.assertNotIn("gpt4o", d["profiles"]["my_profile"])
+
+    def test_underscored_keys_round_trip(self):
+        """Full record round-trip preserves underscored data keys."""
+        record_dict = _make_full_record_dict()
+        # Add underscored keys to the fixture
+        record_dict["implementation"]["tasks"]["task_with_underscores"] = {
+            "status": "done",
+            "summary": "Task with underscored ID",
+            "filesChanged": [],
+            "notes": "",
+            "worktreePreserved": False,
+            "usage": {},
+        }
+        record_dict["implementation"]["activeResources"] = {
+            "task_with_underscores": "/path/wt"
+        }
+        record_dict["workflow"]["config"]["models"]["aliases"] = {
+            "my_fast": "claude-haiku-4-5"
+        }
+
+        record = record_from_json(record_dict)
+        result = record_to_json(record)
+
+        self.assertIn("task_with_underscores", result["implementation"]["tasks"])
+        self.assertIn("task_with_underscores", result["implementation"]["activeResources"])
+        self.assertIn("my_fast", result["workflow"]["config"]["models"]["aliases"])
 
 
 class TestGenericHelpers(unittest.TestCase):

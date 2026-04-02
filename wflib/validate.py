@@ -17,9 +17,28 @@ class ValidationResult:
     warnings: list[str] = field(default_factory=list)   # heuristic warnings — plan is valid but suspect
 
 
+class ValidationError(ValueError):
+    """Raised when plan validation finds hard errors.
+    Carries both errors and warnings so callers can access both.
+    """
+    def __init__(self, result: ValidationResult):
+        self.result = result
+        msg = (
+            f"Plan validation failed with {len(result.errors)} error(s):\n"
+            + "\n".join(f"  - {e}" for e in result.errors)
+        )
+        if result.warnings:
+            msg += (
+                f"\n\nAdditionally, {len(result.warnings)} warning(s):\n"
+                + "\n".join(f"  - {w}" for w in result.warnings)
+            )
+        super().__init__(msg)
+
+
 def validate_plan(plan: Plan) -> ValidationResult:
     """Full validation: structural checks + heuristic checks.
-    Raises ValueError on hard errors.
+    Raises ValidationError (a ValueError subclass) on hard errors.
+    The exception carries the full ValidationResult including warnings.
     Returns ValidationResult for callers who want warnings too.
     """
     # Structural checks (hard errors) first
@@ -37,10 +56,7 @@ def validate_plan(plan: Plan) -> ValidationResult:
     result = ValidationResult(errors=errors, warnings=warnings)
 
     if errors:
-        raise ValueError(
-            f"Plan validation failed with {len(errors)} error(s):\n"
-            + "\n".join(f"  - {e}" for e in errors)
-        )
+        raise ValidationError(result)
 
     return result
 

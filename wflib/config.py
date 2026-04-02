@@ -65,8 +65,9 @@ def _normalize_toml_dict(d: dict) -> dict:
     """Normalize a raw TOML dict for merging.
 
     Converts known dash-case keys to snake_case within config sections.
-    Does NOT convert keys in the 'models' section (those are data keys:
-    alias names, profile names, model names).
+    Converts the 'models' section from TOML flat format (string values = aliases,
+    dict values = profiles) to the structured format (_aliases, _profiles) used
+    by _config_to_merge_dict, so that deep-merging works correctly.
     """
     result = {}
     for section_key, section_val in d.items():
@@ -75,6 +76,16 @@ def _normalize_toml_dict(d: dict) -> dict:
                 _DASH_TO_UNDERSCORE.get(k, k): v
                 for k, v in section_val.items()
             }
+        elif section_key == "models" and isinstance(section_val, dict):
+            # Split flat TOML format into structured _aliases/_profiles
+            aliases = {}
+            profiles = {}
+            for k, v in section_val.items():
+                if isinstance(v, dict):
+                    profiles[k] = v
+                else:
+                    aliases[k] = v
+            result["models"] = {"_aliases": aliases, "_profiles": profiles}
         else:
             result[section_key] = section_val
     return result
@@ -99,48 +110,128 @@ def _validate_keys(d: dict) -> list[str]:
     return errors
 
 
+# --- Validation rules (single source of truth) ---
+
+# Each rule: (section, key) -> validator function.
+# Validators accept a value of any type and return an error string or None.
+# For TOML dict values the type is native (int, bool, str).
+# For string values from CLI/set_config_value, _coerce_string_value
+# converts first.
+
+_VALID_AUTOMATION_LEVELS = {"interactive", "supervised", "automatic"}
+
+
+def _validate_int_ge(threshold: int, label: str):
+    """Return a validator that checks value is int >= threshold."""
+    def validate(value) -> str | None:
+        if not isinstance(value, int) or isinstance(value, bool):
+            return f"{label} must be an integer >= {threshold}"
+        if value < threshold:
+            return f"{label} must be an integer >= {threshold}"
+        return None
+    return validate
+
+
+def _validate_bool(label: str):
+    """Return a validator that checks value is bool."""
+    def validate(value) -> str | None:
+        if not isinstance(value, bool):
+            return f"{label} must be a boolean"
+        return None
+    return validate
+
+
+def _validate_automation_level(key: str):
+    """Return a validator that checks value is a valid automation level."""
+    def validate(value) -> str | None:
+        if value not in _VALID_AUTOMATION_LEVELS:
+            return (
+                f"automation.{key} must be one of "
+                f"'interactive', 'supervised', 'automatic', got '{value}'"
+            )
+        return None
+    return validate
+
+
+def _validate_model_value(key: str):
+    """Return a validator that checks value is a non-empty string or None/null."""
+    def validate(value) -> str | None:
+        if value is not None and (not isinstance(value, str) or value == ""):
+            return f"model.{key} must be a non-empty string or null"
+        return None
+    return validate
+
+
+# Build the validation rule registry
+_VALIDATION_RULES: dict[tuple[str, str], callable] = {}
+
+# execute section
+_VALIDATION_RULES[("execute", "concurrency")] = _validate_int_ge(1, "execute.concurrency")
+_VALIDATION_RULES[("execute", "worktrees")] = _validate_bool("execute.worktrees")
+_VALIDATION_RULES[("execute", "auto_review")] = _validate_bool("execute.auto_review")
+
+# ui section
+_VALIDATION_RULES[("ui", "auto_close")] = _validate_int_ge(0, "ui.auto_close")
+_VALIDATION_RULES[("ui", "tmux")] = _validate_bool("ui.tmux")
+
+# automation section (dynamic keys, all share the same rule pattern)
+for _auto_key in ("brainstorm", "plan", "implement", "review", "close"):
+    _VALIDATION_RULES[("automation", _auto_key)] = _validate_automation_level(_auto_key)
+
+# model section (dynamic keys, all share the same rule pattern)
+for _model_key in ("brainstorm", "plan", "implement", "review", "fixup", "close"):
+    _VALIDATION_RULES[("model", _model_key)] = _validate_model_value(_model_key)
+
+
+def _coerce_string_value(section: str, subkey: str, value: str):
+    """Coerce a string value (from CLI / set_config_value) to its native type
+    for validation. Returns the coerced value.
+    Raises ConfigError if the string can't be coerced.
+    """
+    rule_key = (section, subkey)
+    if rule_key not in _VALIDATION_RULES:
+        return value  # unknown key or models section — return as-is
+
+    # Determine expected type from the section
+    if section == "execute" and subkey == "concurrency":
+        try:
+            return int(value)
+        except ValueError:
+            raise ConfigError("execute.concurrency must be an integer >= 1")
+    if section == "ui" and subkey == "auto_close":
+        try:
+            return int(value)
+        except ValueError:
+            raise ConfigError("ui.auto_close must be an integer >= 0")
+    if section in ("execute", "ui") and subkey in ("worktrees", "auto_review", "tmux"):
+        if value.lower() == "true":
+            return True
+        if value.lower() == "false":
+            return False
+        raise ConfigError(f"{section}.{subkey} must be a boolean")
+    return value  # strings pass through
+
+
 def _validate_values(d: dict) -> list[str]:
-    """Validate config values. Returns list of error messages."""
+    """Validate config values in a dict. Returns list of error messages."""
     errors = []
-    if "execute" in d:
-        ex = d["execute"]
-        if "concurrency" in ex:
-            v = ex["concurrency"]
-            if not isinstance(v, int) or isinstance(v, bool) or v < 1:
-                errors.append("execute.concurrency must be an integer >= 1")
-        if "worktrees" in ex:
-            if not isinstance(ex["worktrees"], bool):
-                errors.append("execute.worktrees must be a boolean")
-        if "auto_review" in ex:
-            if not isinstance(ex["auto_review"], bool):
-                errors.append("execute.auto_review must be a boolean")
-    if "ui" in d:
-        ui = d["ui"]
-        if "auto_close" in ui:
-            v = ui["auto_close"]
-            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
-                errors.append("ui.auto_close must be an integer >= 0")
-        if "tmux" in ui:
-            if not isinstance(ui["tmux"], bool):
-                errors.append("ui.tmux must be a boolean")
-    if "automation" in d:
-        valid_levels = {"interactive", "supervised", "automatic"}
-        for key, val in d["automation"].items():
-            if val not in valid_levels:
-                errors.append(
-                    f"automation.{key} must be one of "
-                    f"'interactive', 'supervised', 'automatic', got '{val}'"
-                )
-    if "model" in d:
-        for key, val in d["model"].items():
-            if val is not None and (not isinstance(val, str) or val == ""):
-                errors.append(f"model.{key} must be a non-empty string or null")
+    for section, section_val in d.items():
+        if not isinstance(section_val, dict):
+            continue
+        for key, val in section_val.items():
+            rule = _VALIDATION_RULES.get((section, key))
+            if rule is not None:
+                err = rule(val)
+                if err:
+                    errors.append(err)
     return errors
 
 
 def _validate_single_key_value(section: str, subkey: str, value: str) -> None:
     """Validate a single key=value for set_config_value.
     Raises ConfigError on unknown key or invalid value.
+    Coerces the string value to its native type, then validates using
+    the same rules as _validate_values (single source of truth).
     """
     if section not in _KNOWN_SECTIONS:
         raise ConfigError(f"Unknown config section: '{section}'")
@@ -148,77 +239,44 @@ def _validate_single_key_value(section: str, subkey: str, value: str) -> None:
     if allowed is not None and subkey not in allowed:
         raise ConfigError(f"Unknown config key: '{section}.{subkey}'")
 
-    # Value validation (value comes as a string; we need to check it makes sense)
-    if section == "execute" and subkey == "concurrency":
-        try:
-            v = int(value)
-        except ValueError:
-            raise ConfigError("execute.concurrency must be an integer >= 1")
-        if v < 1:
-            raise ConfigError("execute.concurrency must be an integer >= 1")
-    elif section == "execute" and subkey in ("worktrees", "auto_review"):
-        if value.lower() not in ("true", "false"):
-            raise ConfigError(f"execute.{subkey} must be a boolean")
-    elif section == "ui" and subkey == "auto_close":
-        try:
-            v = int(value)
-        except ValueError:
-            raise ConfigError("ui.auto_close must be an integer >= 0")
-        if v < 0:
-            raise ConfigError("ui.auto_close must be an integer >= 0")
-    elif section == "ui" and subkey == "tmux":
-        if value.lower() not in ("true", "false"):
-            raise ConfigError("ui.tmux must be a boolean")
-    elif section == "automation":
-        valid_levels = {"interactive", "supervised", "automatic"}
-        if value not in valid_levels:
-            raise ConfigError(
-                f"automation.{subkey} must be one of "
-                f"'interactive', 'supervised', 'automatic', got '{value}'"
-            )
+    # Coerce string to native type (raises ConfigError on bad format)
+    coerced = _coerce_string_value(section, subkey, value)
+
+    # Validate using the shared rule
+    rule = _VALIDATION_RULES.get((section, subkey))
+    if rule is not None:
+        err = rule(coerced)
+        if err:
+            raise ConfigError(err)
+
+
+def _section_to_dict(obj) -> dict:
+    """Convert a dataclass section to a dict with enum values as strings."""
+    from enum import Enum as _Enum
+    return {
+        f.name: (v.value if isinstance(v, _Enum) else v)
+        for f in fields(obj)
+        for v in [getattr(obj, f.name)]
+    }
 
 
 def _config_to_merge_dict(config: WorkflowConfig) -> dict:
     """Convert a WorkflowConfig to a flat merge-format dict (snake_case keys,
-    enum values as strings, models section flattened).
+    enum values as strings, models section with aliases and profiles separate).
     """
     result = {}
+    result["model"] = _section_to_dict(config.model)
+    result["automation"] = _section_to_dict(config.automation)
+    result["execute"] = _section_to_dict(config.execute)
+    result["ui"] = _section_to_dict(config.ui)
+    result["agent"] = _section_to_dict(config.agent)
 
-    # model
-    model_d = {}
-    for f in fields(config.model):
-        model_d[f.name] = getattr(config.model, f.name)
-    result["model"] = model_d
-
-    # automation (enum → string)
-    auto_d = {}
-    for f in fields(config.automation):
-        v = getattr(config.automation, f.name)
-        auto_d[f.name] = v.value if isinstance(v, AutomationLevel) else v
-    result["automation"] = auto_d
-
-    # execute
-    exec_d = {}
-    for f in fields(config.execute):
-        exec_d[f.name] = getattr(config.execute, f.name)
-    result["execute"] = exec_d
-
-    # ui
-    ui_d = {}
-    for f in fields(config.ui):
-        ui_d[f.name] = getattr(config.ui, f.name)
-    result["ui"] = ui_d
-
-    # agent
-    agent_d = {}
-    for f in fields(config.agent):
-        agent_d[f.name] = getattr(config.agent, f.name)
-    result["agent"] = agent_d
-
-    # models: flatten aliases + profiles into one dict
-    models_d = dict(config.models.aliases)
-    models_d.update(config.models.profiles)
-    result["models"] = models_d
+    # models: keep aliases and profiles as separate sub-dicts to avoid
+    # key collisions between alias names and profile names.
+    result["models"] = {
+        "_aliases": dict(config.models.aliases),
+        "_profiles": dict(config.models.profiles),
+    }
 
     return result
 
@@ -251,15 +309,21 @@ def _merge_dict_to_config(d: dict) -> WorkflowConfig:
     # agent
     agent = AgentConfig(**d.get("agent", {}))
 
-    # models: split into aliases (str values) and profiles (dict values)
+    # models: reconstruct from structured sub-dicts or legacy flat format
     models_raw = d.get("models", {})
-    aliases = {}
-    profiles = {}
-    for k, v in models_raw.items():
-        if isinstance(v, dict):
-            profiles[k] = v
-        else:
-            aliases[k] = v
+    if "_aliases" in models_raw or "_profiles" in models_raw:
+        # Structured format (from _config_to_merge_dict)
+        aliases = dict(models_raw.get("_aliases", {}))
+        profiles = dict(models_raw.get("_profiles", {}))
+    else:
+        # Flat format from TOML: string values are aliases, dict values are profiles
+        aliases = {}
+        profiles = {}
+        for k, v in models_raw.items():
+            if isinstance(v, dict):
+                profiles[k] = v
+            else:
+                aliases[k] = v
     models = ModelsConfig(aliases=aliases, profiles=profiles)
 
     return WorkflowConfig(

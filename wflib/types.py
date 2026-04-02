@@ -2,6 +2,10 @@
 
 Schema validation against the JSON Schema files in schemas/.
 All JSON I/O uses camelCase field names; Python dataclasses use snake_case.
+
+This module is the dependency root — no other wflib module is imported here.
+Serialization helpers (_dataclass_to_dict, _dict_to_dataclass) are used by
+config.py and other modules for their own serialization needs.
 """
 
 from __future__ import annotations
@@ -305,7 +309,7 @@ class WorkflowRecord:
     close: CloseRecord | None = None
 
 
-# --- Generic serialization helpers ---
+# --- Public serialization API (used by config.py and other modules) ---
 
 # Map of Python dataclass types to their enum fields for deserialization
 _ENUM_TYPES = {
@@ -325,7 +329,7 @@ def _is_optional(type_hint) -> bool:
     return False
 
 
-def _unwrap_optional(type_hint):
+def _unwrap_optional(type_hint) -> type:
     """Get the inner type from X | None."""
     args = get_args(type_hint)
     non_none = [a for a in args if a is not type(None)]
@@ -337,7 +341,7 @@ def _is_dataclass_type(cls) -> bool:
     return hasattr(cls, '__dataclass_fields__')
 
 
-def _get_list_item_type(type_hint):
+def _get_list_item_type(type_hint) -> type | None:
     """Get the item type from list[X]. Returns None if not a list type."""
     origin = get_origin(type_hint)
     if origin is list:
@@ -346,7 +350,7 @@ def _get_list_item_type(type_hint):
     return None
 
 
-def _get_dict_types(type_hint):
+def _get_dict_types(type_hint) -> tuple[type, type] | None:
     """Get (key_type, value_type) from dict[K, V]. Returns None if not a dict."""
     origin = get_origin(type_hint)
     if origin is dict:
@@ -386,8 +390,11 @@ def _serialize_value(value, *, omit_none: bool = False):
     if isinstance(value, list):
         return [_serialize_value(item, omit_none=omit_none) for item in value]
     if isinstance(value, dict):
+        # Dict keys are data keys (task IDs, model aliases, profile names),
+        # NOT field names — never apply camelCase conversion to them.
+        # Field-name conversion is handled by _dataclass_to_dict.
         return {
-            to_camel_case(k) if isinstance(k, str) else k: _serialize_value(v, omit_none=omit_none)
+            k: _serialize_value(v, omit_none=omit_none)
             for k, v in value.items()
         }
     return value
@@ -528,6 +535,11 @@ def plan_to_json(plan: Plan) -> dict:
 
 def validate_schema(data: dict, component: str | None = None) -> list[str]:
     """Validate data against the JSON Schema.
+
+    Hand-rolled to avoid jsonschema dependency (which pulls in 4 transitive
+    deps including a compiled Rust extension). Covers structural validation
+    (required keys, types, refs, arrays, enums) — NOT full JSON Schema
+    compliance. Sufficient for the tool-call validation use case.
 
     component=None validates full record, "plan"/"brainstorm"/etc. validates
     that $def. Returns list of errors; empty list = valid.

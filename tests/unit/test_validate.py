@@ -3,6 +3,7 @@
 import unittest
 
 from wflib.validate import (
+    ValidationError,
     ValidationResult,
     validate_plan,
     _check_refs,
@@ -337,6 +338,26 @@ class TestValidationResult(unittest.TestCase):
         plan = _make_plan(tasks=tasks)
         with self.assertRaises(ValueError):
             validate_plan(plan)
+
+    def test_validation_error_carries_warnings(self):
+        """ValidationError (raised on hard errors) includes warnings too."""
+        tasks = [
+            # Missing dep (hard error) + empty acceptance (warning)
+            _make_task(id="task-1", depends_on=["nonexistent"], acceptance=[]),
+        ]
+        plan = _make_plan(tasks=tasks)
+        with self.assertRaises(ValidationError) as ctx:
+            validate_plan(plan)
+        # The exception carries the full result including warnings
+        result = ctx.exception.result
+        self.assertGreater(len(result.errors), 0)
+        self.assertGreater(len(result.warnings), 0)
+        # The error message also mentions warnings
+        self.assertIn("warning", str(ctx.exception).lower())
+
+    def test_validation_error_is_value_error(self):
+        """ValidationError is a subclass of ValueError for backward compatibility."""
+        self.assertTrue(issubclass(ValidationError, ValueError))
 
     def test_validation_result_defaults(self):
         """ValidationResult defaults to empty lists."""

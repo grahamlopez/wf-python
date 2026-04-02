@@ -5,6 +5,7 @@ Harness-agnostic - any wrapper can discover and render them.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -79,7 +80,6 @@ def render_template(template: Template, args: list[str]) -> str:
     $@ replaced by all args joined with spaces.
     Returns the rendered body (frontmatter stripped).
     """
-    import re
     body = template.body
     # Replace $@ first (before positional, since $@ is distinct)
     body = body.replace("$@", " ".join(args))
