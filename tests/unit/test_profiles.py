@@ -24,35 +24,49 @@ class TestProfileProtocol(unittest.TestCase):
 
 
 class TestGetProfile(unittest.TestCase):
-    @unittest.skip("Phase 3")
     def test_get_pi(self):
         """get_profile('pi') returns PiProfile."""
+        profile = get_profile("pi")
+        self.assertIsInstance(profile, PiProfile)
 
-    @unittest.skip("Phase 3")
     def test_get_claude_code(self):
         """get_profile('claude-code') returns ClaudeCodeProfile."""
+        profile = get_profile("claude-code")
+        self.assertIsInstance(profile, ClaudeCodeProfile)
 
-    @unittest.skip("Phase 3")
     def test_get_mock(self):
         """get_profile('mock') returns MockProfile."""
+        profile = get_profile("mock")
+        self.assertIsInstance(profile, MockProfile)
 
-    @unittest.skip("Phase 3")
     def test_unknown_raises(self):
         """get_profile('unknown') raises ValueError."""
+        with self.assertRaises(ValueError):
+            get_profile("unknown")
 
 
 class TestResolveAlias(unittest.TestCase):
-    @unittest.skip("Phase 3")
     def test_builtin_alias(self):
         """'sonnet' resolves to 'claude-sonnet-4-5'."""
+        self.assertEqual(
+            resolve_alias("sonnet", ModelsConfig()),
+            BUILTIN_ALIASES["sonnet"],
+        )
 
-    @unittest.skip("Phase 3")
     def test_config_alias_overrides_builtin(self):
         """Config aliases take precedence over built-in aliases."""
+        models_config = ModelsConfig(aliases={"sonnet": "custom-sonnet"})
+        self.assertEqual(
+            resolve_alias("sonnet", models_config),
+            "custom-sonnet",
+        )
 
-    @unittest.skip("Phase 3")
     def test_unknown_passes_through(self):
         """Unknown names pass through unchanged."""
+        self.assertEqual(
+            resolve_alias("unknown-thing", ModelsConfig()),
+            "unknown-thing",
+        )
 
 
 class TestPiModelResolution(unittest.TestCase):

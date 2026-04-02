@@ -79,7 +79,9 @@ def resolve_alias(name: str, models_config: ModelsConfig) -> str:
     Config aliases (models_config.aliases) override built-in aliases.
     Returns the input unchanged if it's not a known alias.
     """
-    raise NotImplementedError("resolve_alias: not yet implemented")
+    if name in models_config.aliases:
+        return models_config.aliases[name]
+    return BUILTIN_ALIASES.get(name, name)
 
 
 def wf_dir() -> str:
@@ -97,4 +99,18 @@ def get_profile(name: str) -> RunnerProfile:
       - "claude-code"  ClaudeCodeProfile
       - "mock"         MockProfile (for E2E tests)
     """
-    raise NotImplementedError("get_profile: not yet implemented")
+    if name == "pi":
+        from profiles.pi import PiProfile
+
+        return PiProfile()
+    if name == "claude-code":
+        from profiles.claude_code import ClaudeCodeProfile
+
+        return ClaudeCodeProfile()
+    if name == "mock":
+        from profiles.mock import MockProfile
+
+        return MockProfile()
+    raise ValueError(
+        f"Unknown profile '{name}'. Expected 'pi', 'claude-code', or 'mock'."
+    )
