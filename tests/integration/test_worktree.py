@@ -269,18 +269,176 @@ class TestCleanupWorktree(unittest.TestCase):
             cleanup_worktree(str(repo), wt)
 
 
+class TestWorkflowCommitOperations(unittest.TestCase):
+    def test_commit_or_amend_workflow_files_creates_commit(self):
+        """Commits docs/workflows changes and leaves other files dirty."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = init_repo(Path(tmp_dir))
+            docs_dir = repo / "docs" / "workflows"
+            docs_dir.mkdir(parents=True)
+            record_path = docs_dir / "flow.json"
+            record_path.write_text("{}\n")
+            (repo / "README.md").write_text("updated\n")
+            committed = commit_or_amend_workflow_files(str(repo), "flow")
+            self.assertTrue(committed)
+            message = subprocess.run(
+                ["git", "log", "-1", "--pretty=%s"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(message, "[workflow] flow: update record")
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertIn("README.md", status)
+            files = subprocess.run(
+                ["git", "show", "--name-only", "--pretty="],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertIn("docs/workflows/flow.json", files)
+            self.assertNotIn("README.md", files)
+
+    def test_commit_or_amend_workflow_files_amends(self):
+        """Amends when last commit starts with [workflow]."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = init_repo(Path(tmp_dir))
+            docs_dir = repo / "docs" / "workflows"
+            docs_dir.mkdir(parents=True)
+            record_path = docs_dir / "flow.json"
+            record_path.write_text("{\"v\": 1}\n")
+            commit_or_amend_workflow_files(str(repo), "flow")
+            head_before = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            count_before = subprocess.run(
+                ["git", "rev-list", "--count", "HEAD"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            record_path.write_text("{\"v\": 2}\n")
+            commit_or_amend_workflow_files(str(repo), "flow")
+            head_after = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            count_after = subprocess.run(
+                ["git", "rev-list", "--count", "HEAD"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(count_before, count_after)
+            self.assertNotEqual(head_before, head_after)
+            message = subprocess.run(
+                ["git", "log", "-1", "--pretty=%s"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(message, "[workflow] flow: update record")
+
+    def test_commit_remaining_changes(self):
+        """Commits staged changes or returns False when clean."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = init_repo(Path(tmp_dir))
+            (repo / "README.md").write_text("updated\n")
+            committed = commit_remaining_changes(str(repo), "final changes")
+            self.assertTrue(committed)
+            message = subprocess.run(
+                ["git", "log", "-1", "--pretty=%s"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(message, "final changes")
+            self.assertTrue(is_clean(str(repo)))
+            self.assertFalse(commit_remaining_changes(str(repo), "no changes"))
+
+
 class TestWorkflowWorktree(unittest.TestCase):
-    @unittest.skip("Phase 2")
     def test_create_workflow_worktree(self):
         """Creates workflow worktree at ../<repo>-wf-<name>/."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = init_repo(Path(tmp_dir))
+            wt = create_workflow_worktree(str(repo), "flow1")
+            expected_path = repo.parent / "repo-wf-flow1"
+            self.assertTrue(expected_path.exists())
+            self.assertEqual(Path(wt.path), expected_path)
+            self.assertEqual(wt.branch, "wf-flow1")
+            self.assertEqual(wt.main_branch, "main")
+            branches = subprocess.run(
+                ["git", "branch", "--list", wt.branch],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertIn(wt.branch, branches)
 
-    @unittest.skip("Phase 2")
     def test_close_workflow_worktree_clean(self):
         """Close with clean rebase returns clean merge state."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = init_repo(Path(tmp_dir))
+            wt = create_workflow_worktree(str(repo), "flow2")
+            (Path(wt.path) / "README.md").write_text("workflow update\n")
+            subprocess.run(["git", "add", "README.md"], cwd=wt.path, check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "commit", "-m", "workflow update"],
+                cwd=wt.path,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            result = close_workflow_worktree(str(repo), wt)
+            self.assertEqual(result.merge_state, "clean")
+            self.assertEqual(result.conflict_files, [])
+            self.assertTrue(result.diff_stat)
+            self.assertTrue((repo / "README.md").read_text().startswith("workflow update"))
+            self.assertTrue(is_clean(str(repo)))
 
-    @unittest.skip("Phase 2")
     def test_close_workflow_worktree_conflict(self):
         """Close with conflict returns conflicted state."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = init_repo(Path(tmp_dir))
+            wt = create_workflow_worktree(str(repo), "flow3")
+            (repo / "README.md").write_text("main change\n")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True, text=True)
+            subprocess.run(["git", "commit", "-m", "main change"], cwd=repo, check=True, capture_output=True, text=True)
+            (Path(wt.path) / "README.md").write_text("workflow change\n")
+            subprocess.run(["git", "add", "README.md"], cwd=wt.path, check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "commit", "-m", "workflow change"],
+                cwd=wt.path,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            result = close_workflow_worktree(str(repo), wt)
+            self.assertEqual(result.merge_state, "conflicted")
+            self.assertIn("README.md", result.conflict_files)
+            self.assertTrue(result.conflicts)
+            self.assertTrue(result.diff_stat)
 
 
 if __name__ == "__main__":

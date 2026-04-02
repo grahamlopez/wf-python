@@ -120,19 +120,93 @@ def cleanup_worktree(main_cwd: str, wt: WorktreeInfo) -> None:
 
 def create_workflow_worktree(cwd: str, workflow_name: str) -> WorktreeInfo:
     """Create ../<repo>-wf-<name>/ on branch wf-<name>."""
-    raise NotImplementedError("create_workflow_worktree: not yet implemented")
+    main_branch = get_current_branch(cwd)
+    repo_root = os.path.abspath(cwd)
+    repo_name = os.path.basename(repo_root.rstrip(os.sep))
+    worktree_path = os.path.join(os.path.dirname(repo_root), f"{repo_name}-wf-{workflow_name}")
+    branch = f"wf-{workflow_name}"
+    wt = WorktreeInfo(path=worktree_path, branch=branch, main_branch=main_branch)
+    cleanup_worktree(cwd, wt)
+    result = git(["worktree", "add", "-b", branch, worktree_path], cwd=cwd)
+    if not result.ok:
+        raise RuntimeError(result.stderr.strip() or "git worktree add failed")
+    return wt
 
 
 def close_workflow_worktree(main_cwd: str, wt: WorktreeInfo) -> WorkflowCloseResult:
     """Rebase + merge, or fall back to merge --no-commit on conflict."""
-    raise NotImplementedError("close_workflow_worktree: not yet implemented")
+    checkout_result = git(["checkout", wt.main_branch], cwd=main_cwd)
+    if not checkout_result.ok:
+        raise RuntimeError(checkout_result.stderr.strip() or "git checkout failed")
+    base_result = git(["rev-parse", "HEAD"], cwd=main_cwd)
+    if not base_result.ok:
+        raise RuntimeError(base_result.stderr.strip() or "git rev-parse failed")
+    base_commit = base_result.stdout.strip()
+
+    rebase_result = git(["rebase", wt.main_branch], cwd=wt.path)
+    if rebase_result.ok:
+        merge_result = git(["merge", "--ff-only", wt.branch], cwd=main_cwd)
+        if not merge_result.ok:
+            conflicts = merge_result.stderr.strip() or merge_result.stdout.strip()
+            return WorkflowCloseResult(merge_state="failed", conflicts=conflicts)
+        diff_result = git(["diff", "--stat", base_commit], cwd=main_cwd)
+        diff_stat = diff_result.stdout.strip() if diff_result.ok else ""
+        return WorkflowCloseResult(merge_state="clean", diff_stat=diff_stat)
+
+    git(["rebase", "--abort"], cwd=wt.path)
+    merge_result = git(["merge", "--no-commit", wt.branch], cwd=main_cwd)
+    conflicts = (
+        merge_result.stderr.strip()
+        or merge_result.stdout.strip()
+        or rebase_result.stderr.strip()
+        or rebase_result.stdout.strip()
+    )
+    conflict_files = get_dirty_files(main_cwd)
+    diff_result = git(["diff", "--stat", base_commit], cwd=main_cwd)
+    diff_stat = diff_result.stdout.strip() if diff_result.ok else ""
+    return WorkflowCloseResult(
+        merge_state="conflicted",
+        conflict_files=conflict_files,
+        conflicts=conflicts,
+        diff_stat=diff_stat,
+    )
 
 
 def commit_or_amend_workflow_files(cwd: str, workflow_name: str) -> bool:
-    """Commit docs/workflows/. Amends if last commit is [workflow-init]."""
-    raise NotImplementedError("commit_or_amend_workflow_files: not yet implemented")
+    """Commit docs/workflows/. Amends if last commit starts with [workflow]."""
+    add_result = git(["add", "docs/workflows"], cwd=cwd)
+    if not add_result.ok:
+        raise RuntimeError(add_result.stderr.strip() or "git add failed")
+    staged = git(["diff", "--cached", "--name-only"], cwd=cwd)
+    if not staged.ok:
+        raise RuntimeError(staged.stderr.strip() or "git diff --cached failed")
+    if staged.stdout.strip() == "":
+        return False
+    message_result = git(["log", "-1", "--pretty=%s"], cwd=cwd)
+    if not message_result.ok:
+        raise RuntimeError(message_result.stderr.strip() or "git log failed")
+    last_message = message_result.stdout.strip()
+    if last_message.startswith("[workflow"):
+        commit_result = git(["commit", "--amend", "--no-edit"], cwd=cwd)
+    else:
+        message = f"[workflow] {workflow_name}: update record"
+        commit_result = git(["commit", "-m", message], cwd=cwd)
+    if not commit_result.ok:
+        raise RuntimeError(commit_result.stderr.strip() or "git commit failed")
+    return True
 
 
 def commit_remaining_changes(cwd: str, message: str) -> bool:
     """Stage all + commit with caller's message."""
-    raise NotImplementedError("commit_remaining_changes: not yet implemented")
+    add_result = git(["add", "-A"], cwd=cwd)
+    if not add_result.ok:
+        raise RuntimeError(add_result.stderr.strip() or "git add failed")
+    staged = git(["diff", "--cached", "--name-only"], cwd=cwd)
+    if not staged.ok:
+        raise RuntimeError(staged.stderr.strip() or "git diff --cached failed")
+    if staged.stdout.strip() == "":
+        return False
+    commit_result = git(["commit", "-m", message], cwd=cwd)
+    if not commit_result.ok:
+        raise RuntimeError(commit_result.stderr.strip() or "git commit failed")
+    return True
