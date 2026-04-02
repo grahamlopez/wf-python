@@ -6,9 +6,12 @@ All JSON I/O uses camelCase field names; Python dataclasses use snake_case.
 
 from __future__ import annotations
 
+import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 from enum import Enum
+from pathlib import Path
+from typing import get_args, get_origin, get_type_hints
 
 
 # --- camelCase / snake_case conversion helpers ---
@@ -302,6 +305,179 @@ class WorkflowRecord:
     close: CloseRecord | None = None
 
 
+# --- Generic serialization helpers ---
+
+# Map of Python dataclass types to their enum fields for deserialization
+_ENUM_TYPES = {
+    TaskStatus,
+    WorkflowStatus,
+    AutomationLevel,
+    ImplementationEventType,
+}
+
+
+def _is_optional(type_hint) -> bool:
+    """Check if a type hint is X | None (Union[X, None])."""
+    origin = get_origin(type_hint)
+    if origin is type(int | str):  # types.UnionType for X | Y syntax
+        args = get_args(type_hint)
+        return type(None) in args
+    return False
+
+
+def _unwrap_optional(type_hint):
+    """Get the inner type from X | None."""
+    args = get_args(type_hint)
+    non_none = [a for a in args if a is not type(None)]
+    return non_none[0] if len(non_none) == 1 else type_hint
+
+
+def _is_dataclass_type(cls) -> bool:
+    """Check if a class is a dataclass."""
+    return hasattr(cls, '__dataclass_fields__')
+
+
+def _get_list_item_type(type_hint):
+    """Get the item type from list[X]. Returns None if not a list type."""
+    origin = get_origin(type_hint)
+    if origin is list:
+        args = get_args(type_hint)
+        return args[0] if args else None
+    return None
+
+
+def _get_dict_types(type_hint):
+    """Get (key_type, value_type) from dict[K, V]. Returns None if not a dict."""
+    origin = get_origin(type_hint)
+    if origin is dict:
+        args = get_args(type_hint)
+        return (args[0], args[1]) if len(args) == 2 else None
+    return None
+
+
+def _dataclass_to_dict(obj, *, omit_none: bool = False) -> dict:
+    """Serialize a dataclass instance to a camelCase dict.
+
+    Handles nested dataclasses, enums, lists, dicts, and optional fields.
+    When omit_none=False (default), None values are included as null.
+    When omit_none=True, None optional fields are omitted from output.
+    """
+    if not _is_dataclass_type(type(obj)):
+        raise TypeError(f"Expected a dataclass instance, got {type(obj)}")
+
+    result = {}
+    for f in fields(obj):
+        value = getattr(obj, f.name)
+        camel_key = to_camel_case(f.name)
+        if omit_none and value is None:
+            continue
+        result[camel_key] = _serialize_value(value, omit_none=omit_none)
+    return result
+
+
+def _serialize_value(value, *, omit_none: bool = False):
+    """Serialize a single value for JSON output."""
+    if value is None:
+        return None
+    if isinstance(value, Enum):
+        return value.value
+    if _is_dataclass_type(type(value)):
+        return _dataclass_to_dict(value, omit_none=omit_none)
+    if isinstance(value, list):
+        return [_serialize_value(item, omit_none=omit_none) for item in value]
+    if isinstance(value, dict):
+        return {
+            to_camel_case(k) if isinstance(k, str) else k: _serialize_value(v, omit_none=omit_none)
+            for k, v in value.items()
+        }
+    return value
+
+
+def _dict_to_dataclass(cls, data: dict):
+    """Deserialize a camelCase dict into a dataclass instance.
+
+    Handles nested dataclasses, enums, lists, dicts, and optional fields.
+    Raises ValueError with clear messages on missing required fields.
+    """
+    if not _is_dataclass_type(cls):
+        raise TypeError(f"Expected a dataclass type, got {cls}")
+
+    hints = get_type_hints(cls)
+    kwargs = {}
+
+    for f in fields(cls):
+        camel_key = to_camel_case(f.name)
+        hint = hints[f.name]
+
+        if camel_key in data:
+            raw = data[camel_key]
+            kwargs[f.name] = _deserialize_value(raw, hint)
+        elif f.name in data:
+            # Also accept snake_case keys (internal usage)
+            raw = data[f.name]
+            kwargs[f.name] = _deserialize_value(raw, hint)
+        else:
+            # Field not in data — check if it has a default or is nullable
+            if _is_optional(hint):
+                # Nullable fields default to None when absent
+                kwargs[f.name] = None
+            elif f.default is MISSING and f.default_factory is MISSING:
+                # Truly required field with no default
+                raise ValueError(
+                    f"Missing required field '{camel_key}' for {cls.__name__}"
+                )
+            # Has a default value or default_factory — let dataclass handle it
+
+    return cls(**kwargs)
+
+
+def _deserialize_value(raw, hint):
+    """Deserialize a single value according to its type hint."""
+    # Handle Optional/nullable
+    if _is_optional(hint):
+        if raw is None:
+            return None
+        hint = _unwrap_optional(hint)
+
+    if raw is None:
+        return None
+
+    # Enum types
+    for enum_cls in _ENUM_TYPES:
+        if hint is enum_cls:
+            return enum_cls(raw)
+
+    # Dataclass types
+    if _is_dataclass_type(hint):
+        if isinstance(raw, dict):
+            return _dict_to_dataclass(hint, raw)
+        return raw
+
+    # list[X]
+    item_type = _get_list_item_type(hint)
+    if item_type is not None:
+        if not isinstance(raw, list):
+            return raw
+        return [_deserialize_value(item, item_type) for item in raw]
+
+    # dict[K, V]
+    dict_types = _get_dict_types(hint)
+    if dict_types is not None:
+        if not isinstance(raw, dict):
+            return raw
+        key_type, val_type = dict_types
+        result = {}
+        for k, v in raw.items():
+            # Convert camelCase keys back to snake_case for dict fields
+            # that use string keys matching Python identifiers
+            py_key = k  # dict keys stay as-is (e.g. task IDs, aliases)
+            result[py_key] = _deserialize_value(v, val_type)
+        return result
+
+    # Primitive types (str, int, float, bool)
+    return raw
+
+
 # --- Serialization ---
 
 def record_from_json(data: dict) -> WorkflowRecord:
@@ -312,24 +488,42 @@ def record_from_json(data: dict) -> WorkflowRecord:
     Ignores unknown top-level keys (forward-compatibility for records
     written by newer wf versions that this version can still partially read).
     """
-    raise NotImplementedError("record_from_json: not yet implemented")
+    version = data.get("schemaVersion", 1)
+    if version > CURRENT_SCHEMA_VERSION:
+        raise ValueError(
+            f"Record schema version {version} is newer than supported "
+            f"version {CURRENT_SCHEMA_VERSION}. Please upgrade wf."
+        )
+
+    # Filter to known fields only (forward-compat: ignore unknown top-level keys)
+    known_fields = {to_camel_case(f.name) for f in fields(WorkflowRecord)}
+    filtered = {k: v for k, v in data.items() if k in known_fields}
+
+    return _dict_to_dataclass(WorkflowRecord, filtered)
 
 
 def record_to_json(record: WorkflowRecord) -> dict:
     """Serialize a WorkflowRecord to a JSON-compatible dict (camelCase keys).
     Always writes schemaVersion as the first key.
     """
-    raise NotImplementedError("record_to_json: not yet implemented")
+    d = _dataclass_to_dict(record)
+    # Ensure schemaVersion is the first key
+    result = {"schemaVersion": d.pop("schemaVersion", CURRENT_SCHEMA_VERSION)}
+    result.update(d)
+    return result
 
 
 def plan_from_json(data: dict) -> Plan:
     """Deserialize a dict (from JSON) into a Plan."""
-    raise NotImplementedError("plan_from_json: not yet implemented")
+    return _dict_to_dataclass(Plan, data)
 
 
 def plan_to_json(plan: Plan) -> dict:
-    """Serialize a Plan to a JSON-compatible dict (camelCase keys)."""
-    raise NotImplementedError("plan_to_json: not yet implemented")
+    """Serialize a Plan to a JSON-compatible dict (camelCase keys).
+    Omits None optional fields (e.g. skills, model, defaultModel) for
+    compatibility with the tool-call submission format.
+    """
+    return _dataclass_to_dict(plan, omit_none=True)
 
 
 def validate_schema(data: dict, component: str | None = None) -> list[str]:
@@ -338,7 +532,134 @@ def validate_schema(data: dict, component: str | None = None) -> list[str]:
     component=None validates full record, "plan"/"brainstorm"/etc. validates
     that $def. Returns list of errors; empty list = valid.
     """
-    raise NotImplementedError("validate_schema: not yet implemented")
+    schema_path = Path(__file__).resolve().parent.parent / "schemas" / "workflow.schema.json"
+    with open(schema_path) as f:
+        full_schema = json.load(f)
+
+    # Determine which schema/def to validate against
+    component_map = {
+        "plan": "Plan",
+        "brainstorm": "Brainstorm",
+        "task": "Task",
+        "report-result": "ReportResult",
+        "usage": "Usage",
+    }
+
+    if component is None:
+        schema_def = full_schema
+    else:
+        def_name = component_map.get(component)
+        if def_name is None:
+            return [f"Unknown component: {component}"]
+        defs = full_schema.get("$defs", {})
+        schema_def = defs.get(def_name)
+        if schema_def is None:
+            return [f"Schema definition not found: {def_name}"]
+
+    return _validate_against_schema(data, schema_def, full_schema.get("$defs", {}), "")
+
+
+def _validate_against_schema(
+    data, schema: dict, defs: dict, path: str
+) -> list[str]:
+    """Basic structural validation against a JSON Schema definition.
+
+    Checks: required keys, correct types, array minItems, $ref resolution.
+    Returns list of error strings (empty = valid).
+    """
+    errors: list[str] = []
+
+    # Resolve $ref
+    if "$ref" in schema:
+        ref = schema["$ref"]
+        # Expected format: #/$defs/TypeName
+        if ref.startswith("#/$defs/"):
+            def_name = ref[len("#/$defs/"):]
+            schema = defs.get(def_name, {})
+        else:
+            return errors  # Can't resolve, skip
+
+    # Handle oneOf (nullable types)
+    if "oneOf" in schema:
+        if data is None:
+            # Check if null is allowed
+            if any(s.get("type") == "null" for s in schema["oneOf"]):
+                return errors
+            errors.append(f"{path or 'root'}: null not allowed")
+            return errors
+        # Try non-null schemas
+        for sub in schema["oneOf"]:
+            if sub.get("type") != "null":
+                sub_errors = _validate_against_schema(data, sub, defs, path)
+                if not sub_errors:
+                    return []
+        # If we got here, none matched. Use the first non-null errors.
+        for sub in schema["oneOf"]:
+            if sub.get("type") != "null":
+                return _validate_against_schema(data, sub, defs, path)
+        return errors
+
+    expected_type = schema.get("type")
+
+    # Type checking
+    if expected_type == "object":
+        if not isinstance(data, dict):
+            errors.append(f"{path or 'root'}: expected object, got {type(data).__name__}")
+            return errors
+
+        # Check required fields
+        for req in schema.get("required", []):
+            if req not in data:
+                prefix = f"{path}." if path else ""
+                errors.append(f"{prefix}{req}: required field missing")
+
+        # Validate properties
+        props = schema.get("properties", {})
+        for key, prop_schema in props.items():
+            if key in data:
+                child_path = f"{path}.{key}" if path else key
+                errors.extend(
+                    _validate_against_schema(data[key], prop_schema, defs, child_path)
+                )
+
+    elif expected_type == "array":
+        if not isinstance(data, list):
+            errors.append(f"{path or 'root'}: expected array, got {type(data).__name__}")
+            return errors
+        min_items = schema.get("minItems")
+        if min_items is not None and len(data) < min_items:
+            errors.append(
+                f"{path or 'root'}: array must have at least {min_items} item(s), got {len(data)}"
+            )
+        item_schema = schema.get("items")
+        if item_schema:
+            for i, item in enumerate(data):
+                child_path = f"{path}[{i}]" if path else f"[{i}]"
+                errors.extend(
+                    _validate_against_schema(item, item_schema, defs, child_path)
+                )
+
+    elif expected_type == "string":
+        if not isinstance(data, str):
+            errors.append(f"{path or 'root'}: expected string, got {type(data).__name__}")
+        # Check enum constraint
+        enum_values = schema.get("enum")
+        if enum_values is not None and data not in enum_values:
+            errors.append(f"{path or 'root'}: value '{data}' not in {enum_values}")
+
+    elif expected_type == "integer":
+        if not isinstance(data, int) or isinstance(data, bool):
+            errors.append(f"{path or 'root'}: expected integer, got {type(data).__name__}")
+
+    elif expected_type == "number":
+        if not isinstance(data, (int, float)) or isinstance(data, bool):
+            errors.append(f"{path or 'root'}: expected number, got {type(data).__name__}")
+
+    elif expected_type == "boolean":
+        if not isinstance(data, bool):
+            errors.append(f"{path or 'root'}: expected boolean, got {type(data).__name__}")
+
+    return errors
 
 
 # --- Message extraction ---
@@ -351,4 +672,17 @@ def extract_tool_call(messages: list[dict], tool_name: str) -> dict | None:
     Looks for assistant messages containing a content block with
     type='toolCall' and name matching tool_name. Returns block['arguments'].
     """
-    raise NotImplementedError("extract_tool_call: not yet implemented")
+    for msg in reversed(messages):
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "toolCall"
+                and block.get("name") == tool_name
+            ):
+                return block.get("arguments")
+    return None
