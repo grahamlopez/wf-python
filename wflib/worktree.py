@@ -8,6 +8,7 @@ import stat
 import subprocess
 
 from wflib.git import get_current_branch, get_dirty_files, git, is_clean
+from wflib.types import MergeState
 
 
 @dataclass
@@ -28,7 +29,7 @@ class MergeResult:
 
 @dataclass
 class WorkflowCloseResult:
-    merge_state: str             # "clean" | "conflicted" | "failed"
+    merge_state: MergeState
     conflict_files: list[str] = field(default_factory=list)
     conflicts: str = ""
     diff_stat: str = ""
@@ -55,7 +56,19 @@ def setup_worktree(main_cwd: str, worktree_path: str) -> None:
     if os.path.isfile(hook_path):
         mode = os.stat(hook_path).st_mode
         os.chmod(hook_path, mode | stat.S_IXUSR)
-        subprocess.run([hook_path], cwd=worktree_path, check=True)
+        try:
+            subprocess.run(
+                [hook_path],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f".worktree-setup hook failed: {exc.stderr or exc.stdout or 'unknown error'}"
+            ) from exc
         return
     symlink_deps(main_cwd, worktree_path)
 
@@ -70,23 +83,37 @@ def symlink_deps(main_cwd: str, worktree_path: str) -> None:
         os.symlink(src, dst)
 
 
-def commit_if_dirty(worktree_path: str, task_id: str, title: str) -> bool:
-    """Stage all + commit with [workflow] prefix. Returns True if committed."""
-    if is_clean(worktree_path):
-        return False
-    add_result = git(["add", "-A", "--", ":!docs/workflows/"], cwd=worktree_path)
+def _stage_and_commit(cwd: str, add_args: list[str], commit_args: list[str]) -> bool:
+    """Stage files, check for staged changes, and commit.
+
+    Encapsulates the repeated pattern: git add <add_args>, check staged files
+    via git diff --cached, git commit <commit_args>.  Returns True if a commit
+    was created, False if nothing was staged.  Raises RuntimeError on failure.
+    """
+    add_result = git(["add"] + add_args, cwd=cwd)
     if not add_result.ok:
         raise RuntimeError(add_result.stderr.strip() or "git add failed")
-    staged = git(["diff", "--cached", "--name-only"], cwd=worktree_path)
+    staged = git(["diff", "--cached", "--name-only"], cwd=cwd)
     if not staged.ok:
         raise RuntimeError(staged.stderr.strip() or "git diff --cached failed")
     if staged.stdout.strip() == "":
         return False
-    message = f"[workflow] {task_id}: {title}"
-    commit_result = git(["commit", "-m", message], cwd=worktree_path)
+    commit_result = git(["commit"] + commit_args, cwd=cwd)
     if not commit_result.ok:
         raise RuntimeError(commit_result.stderr.strip() or "git commit failed")
     return True
+
+
+def commit_if_dirty(worktree_path: str, task_id: str, title: str) -> bool:
+    """Stage all + commit with [workflow] prefix. Returns True if committed."""
+    if is_clean(worktree_path):
+        return False
+    message = f"[workflow] {task_id}: {title}"
+    return _stage_and_commit(
+        worktree_path,
+        ["-A", "--", ":!docs/workflows/"],
+        ["-m", message],
+    )
 
 
 def merge_back(main_cwd: str, wt: WorktreeInfo) -> MergeResult:
@@ -140,7 +167,13 @@ def create_workflow_worktree(cwd: str, workflow_name: str) -> WorktreeInfo:
 
 
 def close_workflow_worktree(main_cwd: str, wt: WorktreeInfo) -> WorkflowCloseResult:
-    """Rebase + merge, or fall back to merge --no-commit on conflict."""
+    """Rebase + merge, or fall back to merge --no-commit on conflict.
+
+    NOTE: This function only performs the merge.  Worktree and branch
+    cleanup is the caller's responsibility (e.g. wf close), matching
+    the merge_back pattern where cleanup_worktree is called separately
+    after merge results are inspected.
+    """
     checkout_result = git(["checkout", wt.main_branch], cwd=main_cwd)
     if not checkout_result.ok:
         raise RuntimeError(checkout_result.stderr.strip() or "git checkout failed")
@@ -180,39 +213,18 @@ def close_workflow_worktree(main_cwd: str, wt: WorktreeInfo) -> WorkflowCloseRes
 
 def commit_or_amend_workflow_files(cwd: str, workflow_name: str) -> bool:
     """Commit docs/workflows/. Amends if last commit starts with [workflow]."""
-    add_result = git(["add", "docs/workflows"], cwd=cwd)
-    if not add_result.ok:
-        raise RuntimeError(add_result.stderr.strip() or "git add failed")
-    staged = git(["diff", "--cached", "--name-only"], cwd=cwd)
-    if not staged.ok:
-        raise RuntimeError(staged.stderr.strip() or "git diff --cached failed")
-    if staged.stdout.strip() == "":
-        return False
     message_result = git(["log", "-1", "--pretty=%s"], cwd=cwd)
     # In a brand-new repo with no commits yet, `git log` will fail.
     # Treat that the same as "no previous workflow commit" and fall
     # through to a fresh commit.
     if message_result.ok and message_result.stdout.strip().startswith("[workflow"):
-        commit_result = git(["commit", "--amend", "--no-edit"], cwd=cwd)
+        commit_args = ["--amend", "--no-edit"]
     else:
         message = f"[workflow] {workflow_name}: update record"
-        commit_result = git(["commit", "-m", message], cwd=cwd)
-    if not commit_result.ok:
-        raise RuntimeError(commit_result.stderr.strip() or "git commit failed")
-    return True
+        commit_args = ["-m", message]
+    return _stage_and_commit(cwd, ["docs/workflows"], commit_args)
 
 
 def commit_remaining_changes(cwd: str, message: str) -> bool:
     """Stage all + commit with caller's message."""
-    add_result = git(["add", "-A"], cwd=cwd)
-    if not add_result.ok:
-        raise RuntimeError(add_result.stderr.strip() or "git add failed")
-    staged = git(["diff", "--cached", "--name-only"], cwd=cwd)
-    if not staged.ok:
-        raise RuntimeError(staged.stderr.strip() or "git diff --cached failed")
-    if staged.stdout.strip() == "":
-        return False
-    commit_result = git(["commit", "-m", message], cwd=cwd)
-    if not commit_result.ok:
-        raise RuntimeError(commit_result.stderr.strip() or "git commit failed")
-    return True
+    return _stage_and_commit(cwd, ["-A"], ["-m", message])

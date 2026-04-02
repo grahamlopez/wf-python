@@ -15,7 +15,12 @@ import re
 from dataclasses import MISSING, dataclass, field, fields
 from enum import Enum
 from pathlib import Path
-from typing import get_args, get_origin, get_type_hints
+from typing import Literal, get_args, get_origin, get_type_hints
+
+
+# --- Constrained string types ---
+
+MergeState = Literal['clean', 'conflicted', 'failed']
 
 
 # --- camelCase / snake_case conversion helpers ---
@@ -290,7 +295,7 @@ class PlanRecord:
 @dataclass
 class CloseRecord:
     recorded_at: str
-    merge_result: str                   # "clean" | "conflicted" | "failed"
+    merge_result: MergeState
     final_commit: str | None
     diff_stat: str
 
