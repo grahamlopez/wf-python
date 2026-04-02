@@ -108,8 +108,8 @@ Each phase is a self-contained `submit_plan` that produces a tested, working ver
 **Scope:**
 - Full directory tree per the sketch (all dirs, all `__init__.py`)
 - `bin/wf` — shebang + minimal argparse skeleton (parses subcommands, prints help)
-- `schemas/workflow.schema.json` — complete, with all `$defs`
-- `wflib/types.py` — all dataclasses fully defined (fields, defaults, enums), `from_dict`/`to_dict`/`extract_tool_call` as `NotImplementedError` stubs
+- `schemas/workflow.schema.json` — complete, with all `$defs`, root schema includes `schemaVersion` as a required integer field
+- `wflib/types.py` — all dataclasses fully defined (fields, defaults, enums), `CURRENT_SCHEMA_VERSION = 1`, `from_dict`/`to_dict`/`extract_tool_call` as `NotImplementedError` stubs. `record_from_json` stub includes version check logic (reject records with version > CURRENT_SCHEMA_VERSION, default to 1 if absent)
 - `tests/conftest.py` — tmp git repo fixture, mock-agent-on-PATH fixture
 - `tests/util.py` — subprocess helper for CLI tests
 - `tests/e2e/mock_agent.py` — the deterministic mock from the sketch

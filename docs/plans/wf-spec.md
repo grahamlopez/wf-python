@@ -560,6 +560,7 @@ Used for: audit, resume, error recovery, debugging, cost tracking, history. Any 
 
 ```json
 {
+  "schemaVersion": 1,
   "workflow": {
     "id": "a1b2",
     "name": "auth-refactor",
@@ -738,6 +739,10 @@ Used for: audit, resume, error recovery, debugging, cost tracking, history. Any 
 ```
 
 ### Design Choices
+
+**`schemaVersion`** is a required integer at the root of every record. Written as the first key in JSON output. Enables future schema migrations: `record_from_json` checks the version and rejects records from newer `wf` versions with a clear upgrade message. Records without the field are assumed to be version 1.
+
+**Forward-compatibility policy.** The root record schema and `$defs/WorkflowRecord` do NOT set `additionalProperties: false` — unknown top-level keys are tolerated. This allows records written by a newer `wf` version (with new sections like a future `phases` or `council` field) to be loaded by an older version without error. The Python loader (`record_from_json`) ignores unknown keys. Sub-schemas (`Plan`, `Task`, `Brainstorm`, `ReportResult`, etc.) DO use `additionalProperties: false` because they are tool registration contracts — strict validation catches malformed LLM tool calls.
 
 **`reviews` is an array.** A review may find issues, those get fixed, and you may review again. Each cycle is an entry. Fixup plan + implementation nest inside the review entry that produced them.
 
@@ -1124,9 +1129,14 @@ class CloseRecord:
     final_commit: str | None
     diff_stat: str
 
+CURRENT_SCHEMA_VERSION = 1
+
 @dataclass
 class WorkflowRecord:
     workflow: WorkflowMeta
+    schema_version: int = CURRENT_SCHEMA_VERSION
+        # Python: workflow must precede schema_version (non-default before default).
+        # JSON: record_to_json writes schemaVersion as the first key regardless.
     brainstorm: BrainstormRecord | None = None
     plan: PlanRecord | None = None
     implementation: ImplementationRecord | None = None
@@ -1136,7 +1146,17 @@ class WorkflowRecord:
 # --- Serialization ---
 
 def record_from_json(data: dict) -> WorkflowRecord
+    """Deserialize a dict (from JSON) into a WorkflowRecord.
+    Reads schemaVersion from the record. If absent, assumes version 1.
+    If the version is higher than CURRENT_SCHEMA_VERSION, raises with
+    a clear message directing the user to upgrade wf.
+    Ignores unknown top-level keys (forward-compatibility for records
+    written by newer wf versions that this version can still partially read).
+    """
 def record_to_json(record: WorkflowRecord) -> dict
+    """Serialize a WorkflowRecord to a JSON-compatible dict (camelCase keys).
+    Always writes schemaVersion as the first key.
+    """
 def plan_from_json(data: dict) -> Plan
 def plan_to_json(plan: Plan) -> dict
 def validate_schema(data: dict, component: str | None = None) -> list[str]

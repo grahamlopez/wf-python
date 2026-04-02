@@ -5,6 +5,11 @@
   "description": "Complete workflow record file structure for wf. Single canonical source of truth per workflow, lives at docs/workflows/<name>.json.",
   "type": "object",
   "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "description": "Record schema version. Absent records are assumed to be version 1.",
+      "default": 1
+    },
     "workflow": { "$ref": "#/$defs/WorkflowMeta" },
     "brainstorm": {
       "oneOf": [
@@ -36,7 +41,6 @@
     }
   },
   "required": ["workflow"],
-  "additionalProperties": false,
   "$defs": {
     "Task": {
       "type": "object",
@@ -575,6 +579,11 @@
       "type": "object",
       "description": "Complete workflow record. Equivalent to the root schema structure.",
       "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "description": "Record schema version. Absent records are assumed to be version 1.",
+          "default": 1
+        },
         "workflow": { "$ref": "#/$defs/WorkflowMeta" },
         "brainstorm": {
           "oneOf": [
@@ -605,8 +614,7 @@
           ]
         }
       },
-      "required": ["workflow"],
-      "additionalProperties": false
+      "required": ["workflow"]
     }
   }
 }

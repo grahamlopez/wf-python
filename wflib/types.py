@@ -288,9 +288,13 @@ class CloseRecord:
     diff_stat: str
 
 
+CURRENT_SCHEMA_VERSION = 1
+
+
 @dataclass
 class WorkflowRecord:
     workflow: WorkflowMeta
+    schema_version: int = CURRENT_SCHEMA_VERSION
     brainstorm: BrainstormRecord | None = None
     plan: PlanRecord | None = None
     implementation: ImplementationRecord | None = None
@@ -301,12 +305,20 @@ class WorkflowRecord:
 # --- Serialization ---
 
 def record_from_json(data: dict) -> WorkflowRecord:
-    """Deserialize a dict (from JSON) into a WorkflowRecord."""
+    """Deserialize a dict (from JSON) into a WorkflowRecord.
+    Reads schemaVersion from the record. If absent, assumes version 1.
+    If the version is higher than CURRENT_SCHEMA_VERSION, raises with
+    a clear message directing the user to upgrade wf.
+    Ignores unknown top-level keys (forward-compatibility for records
+    written by newer wf versions that this version can still partially read).
+    """
     raise NotImplementedError("record_from_json: not yet implemented")
 
 
 def record_to_json(record: WorkflowRecord) -> dict:
-    """Serialize a WorkflowRecord to a JSON-compatible dict (camelCase keys)."""
+    """Serialize a WorkflowRecord to a JSON-compatible dict (camelCase keys).
+    Always writes schemaVersion as the first key.
+    """
     raise NotImplementedError("record_to_json: not yet implemented")
 
 
