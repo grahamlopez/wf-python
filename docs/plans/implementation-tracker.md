@@ -83,6 +83,8 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 
 **Acceptance criteria:** All `tests/integration/` pass
 
+**Review findings to address:** (none)
+
 **Started:** —
 **Completed:** —
 **Lessons learned:** —
@@ -120,6 +122,7 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 - **Finding #10:** E2E tests use `unittest.TestCase` but `conftest.py` provides pytest fixtures (`@pytest.fixture`, `monkeypatch`) — need to reconcile by converting E2E tests to pytest functions or wrapping fixtures for unittest compatibility
 - **Finding #6:** crash-recovery fixture `_comment` added in Phase 0, but the E2E test setup must actually create pre-crash state where all tasks were running (none completed), then verify all reset to pending
 - **Finding #7:** `scheduler.py` → `render.py` cross-module import comment added in Phase 0 — implement `ExecutionSummary` with `UsageRow` integration per spec
+- **Note:** `help.py` routing/scaffolding and topic registry are already in place (Phase 0 review fixup). Remaining work is writing the actual ~800 lines of topic content.
 
 **Resolved early:**
 - **Finding #13:** `bin/wf` now aliases no-args to `wf help topics` and `wf help` routes to the help module
