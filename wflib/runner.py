@@ -13,6 +13,7 @@ import os
 import subprocess
 import tempfile
 
+from wflib import tmux
 from wflib.types import (
     ModelsConfig,
     ReportResult,
@@ -131,7 +132,105 @@ def spawn_in_tmux(
     models_config: ModelsConfig | None = None,
 ) -> AgentResult:
     """Spawn agent in a tmux pane. Wait for completion via exit-code file."""
-    raise NotImplementedError("spawn_in_tmux: not yet implemented")
+    if not profile.supports_tmux:
+        raise NotImplementedError(
+            f"Profile '{profile.name}' does not support tmux execution."
+        )
+
+    results_path = os.environ.get("WF_RESULTS_PATH")
+    if not results_path:
+        results_path = os.path.join(cwd, "results.json")
+
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    system_prompt_file: str | None = None
+    prompt_file: str | None = None
+    wrapper_file: str | None = None
+    exit_code_file: str | None = None
+
+    try:
+        temp_dir = tempfile.TemporaryDirectory()
+        base_dir = temp_dir.name
+
+        if preserve_session_dir:
+            session_dir = preserve_session_dir
+            os.makedirs(session_dir, exist_ok=True)
+        else:
+            session_dir = os.path.join(base_dir, "session")
+            os.makedirs(session_dir, exist_ok=True)
+
+        results_dir = os.path.dirname(results_path)
+        if results_dir:
+            os.makedirs(results_dir, exist_ok=True)
+
+        exit_code_file = os.path.join(base_dir, "exit-code")
+
+        with tempfile.NamedTemporaryFile(
+            "w",
+            delete=False,
+            encoding="utf-8",
+            dir=base_dir,
+        ) as handle:
+            handle.write(prompt)
+            handle.flush()
+            prompt_file = handle.name
+
+        with tempfile.NamedTemporaryFile(
+            "w",
+            delete=False,
+            encoding="utf-8",
+            dir=base_dir,
+        ) as handle:
+            handle.write(system_prompt)
+            handle.flush()
+            system_prompt_file = handle.name
+
+        wrapper_script = profile.build_tmux_wrapper(
+            system_prompt_file=system_prompt_file,
+            model=model,
+            tools=tools,
+            prompt_file=prompt_file,
+            session_dir=session_dir,
+            exit_code_file=exit_code_file,
+            results_file=results_path,
+            auto_close=auto_close,
+            cmd_override=cmd_override,
+            models_config=models_config,
+        )
+
+        with tempfile.NamedTemporaryFile(
+            "w",
+            delete=False,
+            encoding="utf-8",
+            dir=base_dir,
+        ) as handle:
+            handle.write(wrapper_script)
+            handle.flush()
+            wrapper_file = handle.name
+
+        os.chmod(wrapper_file, 0o755)
+
+        command = tmux.shell_escape(wrapper_file)
+        pane_id = tmux.get_or_create_execution_pane(
+            cwd=cwd,
+            command=command,
+            workflow_label=workflow_label,
+            task_id=task_id,
+            task_title=task_title,
+        )
+        tmux.wait_for_exit_code_file(exit_code_file, pane_id)
+
+        return _read_agent_results(results_path)
+    except Exception as exc:
+        return AgentResult(exit_code=1, error=f"Failed to spawn agent in tmux: {exc}")
+    finally:
+        for path in (system_prompt_file, prompt_file, wrapper_file, exit_code_file):
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        if temp_dir is not None:
+            temp_dir.cleanup()
 
 
 def _read_agent_results(results_path: str) -> AgentResult:

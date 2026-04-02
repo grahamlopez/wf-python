@@ -10,17 +10,36 @@ from wflib.types import ModelsConfig
 
 
 class TestProfileProtocol(unittest.TestCase):
-    @unittest.skip("Phase 3")
+    def _assert_protocol(self, profile: RunnerProfile) -> None:
+        required_methods = [
+            "build_headless_cmd",
+            "build_tmux_wrapper",
+            "parse_headless_output",
+            "parse_session_output",
+            "get_tool_paths",
+            "resolve_model",
+            "list_models",
+        ]
+        for name in required_methods:
+            self.assertTrue(hasattr(profile, name), f"Missing {name}")
+            self.assertTrue(callable(getattr(profile, name)), f"{name} not callable")
+
+        self.assertTrue(hasattr(profile, "name"), "Missing name")
+        self.assertIsInstance(profile.name, str)
+        self.assertTrue(hasattr(profile, "supports_tmux"), "Missing supports_tmux")
+        self.assertIsInstance(profile.supports_tmux, bool)
+
     def test_pi_implements_protocol(self):
         """PiProfile implements the full RunnerProfile protocol."""
+        self._assert_protocol(PiProfile())
 
-    @unittest.skip("Phase 3")
     def test_claude_code_implements_protocol(self):
         """ClaudeCodeProfile implements the full RunnerProfile protocol."""
+        self._assert_protocol(ClaudeCodeProfile())
 
-    @unittest.skip("Phase 3")
     def test_mock_implements_protocol(self):
         """MockProfile implements the full RunnerProfile protocol."""
+        self._assert_protocol(MockProfile())
 
 
 class TestGetProfile(unittest.TestCase):
