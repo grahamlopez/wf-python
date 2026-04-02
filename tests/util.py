@@ -5,9 +5,10 @@ cwd, stdin, env vars, and returns an object with stdout, stderr, returncode.
 """
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Sequence, Union
 
 # Locate bin/wf relative to this file (tests/util.py -> repo_root/bin/wf)
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -32,7 +33,7 @@ class WfResult:
 
 
 def run_wf(
-    args: str,
+    args: Union[str, Sequence[str]],
     *,
     cwd: Optional[Union[str, Path]] = None,
     stdin: Optional[str] = None,
@@ -44,8 +45,9 @@ def run_wf(
     Parameters
     ----------
     args:
-        Command-line arguments as a single string (split on whitespace).
-        Example: ``"init myproject --cwd /tmp/proj --no-worktree"``
+        Command-line arguments as a single string (shell-like parsing) or a
+        list of arguments. Example:
+        ``"init myproject --cwd /tmp/proj --no-worktree"``
     cwd:
         Working directory for the subprocess. Defaults to the repo root.
     stdin:
@@ -61,7 +63,12 @@ def run_wf(
     WfResult
         Object with .stdout, .stderr, .returncode attributes.
     """
-    cmd = ["python3", str(_WF_BIN)] + args.split()
+    if isinstance(args, str):
+        argv = shlex.split(args)
+    else:
+        argv = list(args)
+
+    cmd = ["python3", str(_WF_BIN)] + argv
 
     run_env = os.environ.copy()
     if env:

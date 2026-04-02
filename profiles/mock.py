@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from profiles import resolve_alias
+from profiles import resolve_alias, wf_dir
 from wflib.types import ModelsConfig
 
 
@@ -57,4 +57,4 @@ class MockProfile:
 
     @property
     def _wf_dir(self) -> str:
-        return str(Path(__file__).parent.parent)
+        return wf_dir()

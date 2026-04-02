@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from wflib.types import ModelsConfig
@@ -79,6 +80,11 @@ def resolve_alias(name: str, models_config: ModelsConfig) -> str:
     Returns the input unchanged if it's not a known alias.
     """
     raise NotImplementedError("resolve_alias: not yet implemented")
+
+
+def wf_dir() -> str:
+    """Root of the wf installation (parent of profiles/)."""
+    return str(Path(__file__).resolve().parent.parent)
 
 
 # --- Profile registry ---

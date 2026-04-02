@@ -114,12 +114,42 @@ class BrainstormRecord:
 
 # --- Implementation ---
 
+class ImplementationEventType(Enum):
+    TASK_START = "taskStart"
+    TASK_COMPLETE = "taskComplete"
+    MERGE_START = "mergeStart"
+    MERGE_COMPLETE = "mergeComplete"
+    MERGE_FAILED = "mergeFailed"
+    MERGE_RESOLVE_START = "mergeResolveStart"
+    MERGE_RESOLVE_COMPLETE = "mergeResolveComplete"
+    MERGE_RESOLVE_FAILED = "mergeResolveFailed"
+    WORKTREE_CLEANUP = "worktreeCleanup"
+    SKIP_DEPENDENTS = "skipDependents"
+    CRASH_RECOVERY = "crashRecovery"
+    ERROR = "error"
+
+
 @dataclass
 class ImplementationEvent:
     t: str                                     # ISO timestamp
-    event: str                                 # Validated via schema enum — see ImplementationEvent in workflow.schema.json
+    event: ImplementationEventType             # Validated via schema enum — see ImplementationEvent in workflow.schema.json
     task: str | None = None
     detail: str | None = None                  # extra context
+
+    def __post_init__(self) -> None:
+        if isinstance(self.event, ImplementationEventType):
+            return
+        if isinstance(self.event, str):
+            try:
+                self.event = ImplementationEventType(self.event)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid ImplementationEvent.event: {self.event}"
+                ) from exc
+        else:
+            raise TypeError(
+                "ImplementationEvent.event must be an ImplementationEventType or str"
+            )
 
 
 @dataclass

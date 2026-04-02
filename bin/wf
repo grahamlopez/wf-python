@@ -37,11 +37,18 @@ from pathlib import Path
 # Add repo root to sys.path so wflib, profiles, adapters are importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from wflib.help import help_command
+
 
 def _not_implemented(args):
     """Default handler for all subcommands — prints error JSON and exits 1."""
     print(json.dumps({"error": "not implemented"}))
     sys.exit(1)
+
+
+def _help_entry(args):
+    """Delegate to the agent-friendly help system."""
+    help_command([args.topic] if args.topic else [])
 
 
 def build_parser():
@@ -316,7 +323,7 @@ def build_parser():
     # --- wf help [topic] ---
     p_help = subparsers.add_parser("help", help="Show help reference")
     p_help.add_argument("topic", nargs="?", help="Help topic (optional)")
-    p_help.set_defaults(func=_not_implemented)
+    p_help.set_defaults(func=_help_entry)
 
     return parser
 
@@ -327,8 +334,8 @@ def main():
 
     if args.command is None:
         # wf with no arguments should show help topics
-        print(json.dumps({"error": "not implemented: wf with no arguments should show help topics"}))
-        sys.exit(1)
+        help_command(["topics"])
+        return
 
     args.func(args)
 

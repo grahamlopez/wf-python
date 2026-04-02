@@ -52,6 +52,7 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 - **Fixture repo test files get collected by pytest.** The mini Python projects inside `tests/e2e/fixtures/*/repo/tests/` were picked up by pytest's test discovery, causing import errors (their `from src.app import ...` doesn't resolve). Fix: added `norecursedirs = tests/e2e/fixtures` to `pytest.ini`.
 - **task-4 merge conflict required manual resolution.** The conflict was entirely in `.pyc` files, not source code. After adding `.gitignore` and cleaning the cache files from both sides, the task-4 source files were copied directly to main. The orphaned worktree was cleaned up.
 - **conftest.py correctly uses pytest.** The `tests/e2e/conftest.py` imports pytest for fixtures (`@pytest.fixture`, `monkeypatch`). This is expected — conftest files are pytest-specific infrastructure. The stdlib compatibility constraint (unittest.skip, unittest.TestCase) applies to the test files themselves, not to conftest.
+- **Post-review fixes landed early.** Added required repo directories (`prompts/`, `templates/`, `tools/`), implemented help-topic aliasing, added `ImplementationEventType` validation, unified `_wf_dir` helper, and corrected CLI arg parsing in `tests/util.py`.
 
 **Spec adjustments:** None needed.
 
@@ -64,8 +65,10 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 **Acceptance criteria:** All `tests/unit/` pass
 
 **Review findings to address:**
-- **Finding #3:** `ImplementationEvent.event` should become a proper Enum or get validated (comment added in Phase 0; real enum/validation implementation belongs here)
 - **Finding #4:** `set_config_value` `path` param needs clear implementation — `path` is the project root directory used to locate `.wf/config.toml`, not a dotted config path or file path
+
+**Resolved early:**
+- **Finding #3:** `ImplementationEvent.event` now uses `ImplementationEventType` with runtime validation (implemented ahead of Phase 1)
 
 **Started:** —
 **Completed:** —
@@ -94,8 +97,10 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 **Acceptance criteria:** All `tests/unit/test_profiles.py`, `tests/profile/`, `tests/adapter/` pass
 
 **Review findings to address:**
-- **Finding #5:** Extract shared `_wf_dir` helper to a base module; provide shared `_effective_map_for` helper in `profiles/__init__.py` to eliminate duplication across profile implementations
 - **Finding #9:** `RunnerProfile` import was fixed in Phase 0 cleanup, but the real implementation in `task_executor.py` needs to wire up the profile protocol properly
+
+**Resolved early:**
+- **Finding #5:** Shared `_wf_dir` helper added to `profiles/__init__.py`, profiles now delegate to it
 
 **Started:** —
 **Completed:** —
@@ -115,7 +120,9 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 - **Finding #10:** E2E tests use `unittest.TestCase` but `conftest.py` provides pytest fixtures (`@pytest.fixture`, `monkeypatch`) — need to reconcile by converting E2E tests to pytest functions or wrapping fixtures for unittest compatibility
 - **Finding #6:** crash-recovery fixture `_comment` added in Phase 0, but the E2E test setup must actually create pre-crash state where all tasks were running (none completed), then verify all reset to pending
 - **Finding #7:** `scheduler.py` → `render.py` cross-module import comment added in Phase 0 — implement `ExecutionSummary` with `UsageRow` integration per spec
-- **Finding #13:** `bin/wf` no-args case error message updated in Phase 0 — implement actual help topics display
+
+**Resolved early:**
+- **Finding #13:** `bin/wf` now aliases no-args to `wf help topics` and `wf help` routes to the help module
 
 **Started:** —
 **Completed:** —
@@ -131,7 +138,10 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 **Acceptance criteria:** Tools validate-and-return, prompts ported, wrapper delegates to CLI
 
 **Review findings to address:**
-- **Finding #2:** Create `tools/`, `tools/pi_extensions/`, `prompts/`, `templates/` directories — `templates/` is needed by `wflib/templates.py`'s `SHIPPED_DIR` constant
+- (none)
+
+**Resolved early:**
+- **Finding #2:** Created `tools/`, `tools/pi_extensions/`, `prompts/`, `templates/` directories with placeholder files
 
 **Started:** —
 **Completed:** —

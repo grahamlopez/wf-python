@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from adapters import pi_json_mode, pi_session
-from profiles import resolve_alias
+from profiles import resolve_alias, wf_dir
 from wflib.types import ModelsConfig
 
 
@@ -82,7 +82,7 @@ class PiProfile:
     @property
     def _wf_dir(self) -> str:
         """Root of the wf installation (parent of profiles/)."""
-        return str(Path(__file__).parent.parent)
+        return wf_dir()
 
     @property
     def _ext_dir(self) -> str:
