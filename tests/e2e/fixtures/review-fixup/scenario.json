@@ -1,0 +1,49 @@
+{
+  "tasks": [
+    {
+      "match": "task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/logger.py",
+          "content": "\"\"\"Structured logging module with log levels.\"\"\"\nimport json\nimport sys\nfrom datetime import datetime\n\n\ndef _emit(level, message):\n    entry = {\"timestamp\": datetime.now().isoformat(), \"level\": level, \"message\": message}\n    print(json.dumps(entry), file=sys.stderr)\n\n\ndef debug(message):\n    _emit(\"DEBUG\", message)\n\n\ndef info(message):\n    _emit(\"INFO\", message)\n\n\ndef warn(message):\n    _emit(\"WARN\", message)\n\n\ndef error(message):\n    _emit(\"ERROR\", message)\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Refactored logger.py with structured JSON output and log levels (DEBUG, INFO, WARN, ERROR).",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-2",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/app.py",
+          "content": "\"\"\"Main application with structured logging.\"\"\"\nfrom src.logger import info, error\n\n\ndef run():\n    info(\"Starting application\")\n    try:\n        result = do_work()\n        info(f\"Work completed: {result}\")\n    except Exception as e:\n        error(str(e))\n\n\ndef do_work():\n    return {\"status\": \"ok\"}\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Updated app.py to use info() and error() log level functions.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "fixup-task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/logger.py",
+          "content": "\"\"\"Structured logging module with log levels.\"\"\"\nimport json\nimport sys\nfrom datetime import datetime, timezone\n\n\ndef _emit(level, message):\n    entry = {\"timestamp\": datetime.now(timezone.utc).isoformat(), \"level\": level, \"message\": message}\n    print(json.dumps(entry), file=sys.stderr)\n\n\ndef debug(message):\n    _emit(\"DEBUG\", message)\n\n\ndef info(message):\n    _emit(\"INFO\", message)\n\n\ndef warn(message):\n    _emit(\"WARN\", message)\n\n\ndef error(message):\n    _emit(\"ERROR\", message)\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Fixed logger to use timezone-aware UTC timestamps.",
+        "notes": ""
+      },
+      "exit_code": 0
+    }
+  ]
+}

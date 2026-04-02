@@ -1,0 +1,10 @@
+{
+  "implementation": {
+    "tasks": {
+      "task-1": {"status": "done"},
+      "task-2": {"status": "failed"},
+      "task-3": {"status": "skipped"},
+      "task-4": {"status": "done"}
+    }
+  }
+}

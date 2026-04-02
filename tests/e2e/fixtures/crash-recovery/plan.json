@@ -1,0 +1,34 @@
+{
+  "goal": "Add retry logic and error reporting to the job processing system",
+  "context": "Python background job processor. Add retry support to the worker and structured error reporting to the queue. This fixture simulates a crash during execution — the record will be pre-populated with tasks stuck in running state.",
+  "defaultModel": "mock",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Add retry logic to worker",
+      "goal": "Add configurable retry logic to process_job with exponential backoff.",
+      "files": ["src/worker.py"],
+      "constraints": ["Use stdlib time.sleep for backoff", "Max 3 retries by default"],
+      "acceptance": ["process_job retries on failure", "Backoff increases exponentially"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-2",
+      "title": "Add error reporting to queue",
+      "goal": "Add dead letter queue and error reporting to JobQueue for failed jobs.",
+      "files": ["src/queue.py"],
+      "constraints": ["Failed jobs move to dead letter list", "Record failure reason"],
+      "acceptance": ["JobQueue has dead_letter list", "Failed jobs include error reason"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-3",
+      "title": "Integrate retry with queue error reporting",
+      "goal": "Connect worker retry exhaustion to queue error reporting so permanently failed jobs are tracked.",
+      "files": ["src/worker.py", "src/queue.py"],
+      "constraints": ["Use queue error reporting after retries exhausted"],
+      "acceptance": ["Exhausted retries result in dead letter entry"],
+      "dependsOn": ["task-1", "task-2"]
+    }
+  ]
+}

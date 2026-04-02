@@ -1,0 +1,25 @@
+{
+  "goal": "Restructure the user table schema with incompatible approaches",
+  "context": "Python project with a database schema module. Two tasks independently redesign the user table structure in fundamentally different ways — one normalizes into multiple tables, the other denormalizes into a single wide table. These approaches are inherently incompatible.",
+  "defaultModel": "mock",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Normalize user schema",
+      "goal": "Split the user table into users and user_profiles tables with a foreign key relationship.",
+      "files": ["src/schema.py"],
+      "constraints": ["Use normalized form with separate tables"],
+      "acceptance": ["get_user_table returns normalized schema with users and user_profiles"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-2",
+      "title": "Denormalize user schema",
+      "goal": "Flatten all user data into a single wide users table with profile columns inline.",
+      "files": ["src/schema.py"],
+      "constraints": ["Use denormalized form with single table"],
+      "acceptance": ["get_user_table returns single table with all profile columns"],
+      "dependsOn": []
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+[
+  "src/logger.py",
+  "src/app.py",
+  "tests/test_logger.py"
+]

@@ -1,0 +1,5 @@
+[
+  "src/schema.py",
+  "src/migrate.py",
+  "tests/test_schema.py"
+]

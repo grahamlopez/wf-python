@@ -1,0 +1,5 @@
+[
+  "src/worker.py",
+  "src/queue.py",
+  "tests/test_worker.py"
+]

@@ -1,0 +1,6 @@
+[
+  "src/greeting.py",
+  "src/translations.py",
+  "src/main.py",
+  "tests/test_greeting.py"
+]

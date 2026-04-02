@@ -1,0 +1,25 @@
+{
+  "goal": "Update application constants and configuration for v2.0 release",
+  "context": "Small Python app with shared constants module. Two tasks independently update constants.py — one bumps the version, the other changes timeout. Both edit the same file, creating a merge conflict scenario.",
+  "defaultModel": "mock",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Bump version to 2.0.0",
+      "goal": "Update VERSION constant in constants.py to '2.0.0' and update any version references in app.py.",
+      "files": ["src/constants.py", "src/app.py"],
+      "constraints": ["Only change version-related values"],
+      "acceptance": ["VERSION == '2.0.0' in constants.py"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-2",
+      "title": "Update timeout and retries",
+      "goal": "Change TIMEOUT to 60 and MAX_RETRIES to 5 in constants.py to improve reliability.",
+      "files": ["src/constants.py"],
+      "constraints": ["Only change timeout and retry values"],
+      "acceptance": ["TIMEOUT == 60 in constants.py", "MAX_RETRIES == 5 in constants.py"],
+      "dependsOn": []
+    }
+  ]
+}

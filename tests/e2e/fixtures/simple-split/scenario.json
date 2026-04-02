@@ -1,0 +1,39 @@
+{
+  "tasks": [
+    {
+      "match": "task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/users.py",
+          "content": "\"\"\"User route handlers.\"\"\"\n\n\ndef list_users():\n    return [{\"id\": 1, \"name\": \"Alice\"}, {\"id\": 2, \"name\": \"Bob\"}], 200\n"
+        },
+        {
+          "type": "write",
+          "path": "src/app.py",
+          "content": "\"\"\"Simple web app - routes split into modules.\"\"\"\nfrom src.users import list_users\nfrom src.health import health_check\n\n\ndef handle_request(path):\n    \"\"\"Route a request to the appropriate handler.\"\"\"\n    if path == \"/users\":\n        return list_users()\n    elif path == \"/health\":\n        return health_check()\n    return {\"error\": \"not found\"}, 404\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Extracted list_users into src/users.py and updated app.py imports.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-2",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/health.py",
+          "content": "\"\"\"Health check route handlers.\"\"\"\n\n\ndef health_check():\n    return {\"status\": \"ok\"}, 200\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Extracted health_check into src/health.py and updated app.py imports.",
+        "notes": ""
+      },
+      "exit_code": 0
+    }
+  ]
+}

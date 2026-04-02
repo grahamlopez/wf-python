@@ -1,0 +1,43 @@
+{
+  "tasks": [
+    {
+      "match": "task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/calculator.py",
+          "content": "\"\"\"Calculator module with basic and advanced operations.\"\"\"\n\n\ndef _validate_numeric(*args):\n    for a in args:\n        if not isinstance(a, (int, float)):\n            raise TypeError(f\"Expected numeric type, got {type(a).__name__}\")\n\n\ndef add(a, b):\n    _validate_numeric(a, b)\n    return a + b\n\n\ndef subtract(a, b):\n    _validate_numeric(a, b)\n    return a - b\n\n\ndef multiply(a, b):\n    _validate_numeric(a, b)\n    return a * b\n\n\ndef divide(a, b):\n    _validate_numeric(a, b)\n    if b == 0:\n        raise ValueError(\"division by zero\")\n    return a / b\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Added _validate_numeric helper and input validation to all calculator functions.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-2",
+      "operations": [],
+      "report_result": {
+        "summary": "Failed to add type hints due to syntax error in generated code.",
+        "notes": "Encountered an unexpected parsing failure."
+      },
+      "exit_code": 1
+    },
+    {
+      "match": "task-4",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/utils.py",
+          "content": "\"\"\"Utility functions.\"\"\"\n\n\ndef clamp(value, min_val, max_val):\n    \"\"\"Clamp a value to a range.\n\n    Args:\n        value: The value to clamp.\n        min_val: Minimum allowed value.\n        max_val: Maximum allowed value.\n\n    Returns:\n        The clamped value.\n    \"\"\"\n    return max(min_val, min(value, max_val))\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Added Google-style docstrings to all functions in utils.py.",
+        "notes": ""
+      },
+      "exit_code": 0
+    }
+  ]
+}

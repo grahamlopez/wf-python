@@ -1,0 +1,25 @@
+{
+  "goal": "Split monolithic app.py into separate route handler modules",
+  "context": "Small Python web app with a single app.py containing all route handlers. Split user routes and health routes into separate modules for better organization.",
+  "defaultModel": "mock",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Extract user routes",
+      "goal": "Move list_users handler from app.py to a new src/users.py module and update app.py to import from it.",
+      "files": ["src/app.py", "src/users.py"],
+      "constraints": ["Keep the function signature identical"],
+      "acceptance": ["src/users.py exists with list_users function", "app.py imports from users module"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-2",
+      "title": "Extract health routes",
+      "goal": "Move health_check handler from app.py to a new src/health.py module and update app.py to import from it.",
+      "files": ["src/app.py", "src/health.py"],
+      "constraints": ["Keep the function signature identical"],
+      "acceptance": ["src/health.py exists with health_check function", "app.py imports from health module"],
+      "dependsOn": []
+    }
+  ]
+}

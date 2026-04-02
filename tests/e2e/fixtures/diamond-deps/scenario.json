@@ -1,0 +1,69 @@
+{
+  "tasks": [
+    {
+      "match": "task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/auth_types.py",
+          "content": "\"\"\"Shared auth types.\"\"\"\nfrom dataclasses import dataclass\n\n\n@dataclass\nclass Claims:\n    user: str\n    role: str\n\n\n@dataclass\nclass Session:\n    session_id: str\n    user_id: str\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Created src/auth_types.py with Claims and Session dataclasses.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-2",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/token.py",
+          "content": "\"\"\"Token verification module.\"\"\"\nfrom src.auth_types import Claims\n\n\ndef verify_token(token: str) -> Claims | None:\n    if not token:\n        return None\n    return Claims(user=\"alice\", role=\"admin\")\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Extracted verify_token into src/token.py using Claims type from auth_types.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-3",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/session.py",
+          "content": "\"\"\"Session management module.\"\"\"\nfrom src.auth_types import Session\n\n\ndef create_session(user_id: str) -> Session:\n    return Session(session_id=\"sess_123\", user_id=user_id)\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Extracted create_session into src/session.py using Session type from auth_types.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-4",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/middleware.py",
+          "content": "\"\"\"Auth middleware module.\"\"\"\nfrom src.token import verify_token\nfrom src.session import create_session\n\n\ndef auth_middleware(handler):\n    def wrapper(request):\n        token = request.get(\"authorization\")\n        claims = verify_token(token)\n        if not claims:\n            return {\"error\": \"unauthorized\"}, 401\n        request[\"user\"] = claims\n        return handler(request)\n    return wrapper\n"
+        },
+        {
+          "type": "write",
+          "path": "src/auth.py",
+          "content": "\"\"\"Auth facade - re-exports from submodules.\"\"\"\nfrom src.token import verify_token\nfrom src.session import create_session\nfrom src.middleware import auth_middleware\n\n__all__ = [\"verify_token\", \"create_session\", \"auth_middleware\"]\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Extracted auth_middleware into src/middleware.py. auth.py is now a thin re-export facade.",
+        "notes": ""
+      },
+      "exit_code": 0
+    }
+  ]
+}

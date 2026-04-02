@@ -1,0 +1,34 @@
+{
+  "goal": "Refactor data pipeline into three sequential stages with proper interfaces",
+  "context": "Python data processing module with parse/transform/format stages currently in one file. Extract each stage into its own module, building on the previous stage's interface.",
+  "defaultModel": "mock",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Extract parser stage",
+      "goal": "Move parse function into src/parser.py with a typed interface. Update data.py to import from it.",
+      "files": ["src/data.py", "src/parser.py"],
+      "constraints": ["Define a ParseResult type"],
+      "acceptance": ["src/parser.py exists with parse function", "data.py imports from parser module"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-2",
+      "title": "Extract transform stage",
+      "goal": "Move transform function into src/transform.py, consuming ParseResult from parser module.",
+      "files": ["src/data.py", "src/transform.py"],
+      "constraints": ["Import ParseResult from parser module", "Define TransformResult type"],
+      "acceptance": ["src/transform.py exists with transform function", "transform accepts ParseResult input"],
+      "dependsOn": ["task-1"]
+    },
+    {
+      "id": "task-3",
+      "title": "Extract formatter stage",
+      "goal": "Move format_output function into src/formatter.py, consuming TransformResult from transform module.",
+      "files": ["src/data.py", "src/formatter.py"],
+      "constraints": ["Import TransformResult from transform module"],
+      "acceptance": ["src/formatter.py exists with format_output function", "formatter accepts TransformResult input"],
+      "dependsOn": ["task-2"]
+    }
+  ]
+}

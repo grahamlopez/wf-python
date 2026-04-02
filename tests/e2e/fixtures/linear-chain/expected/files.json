@@ -1,0 +1,8 @@
+[
+  "src/data.py",
+  "src/parser.py",
+  "src/transform.py",
+  "src/formatter.py",
+  "src/config.py",
+  "tests/test_data.py"
+]

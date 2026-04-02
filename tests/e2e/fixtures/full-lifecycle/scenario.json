@@ -1,0 +1,54 @@
+{
+  "tasks": [
+    {
+      "match": "task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/translations.py",
+          "content": "\"\"\"Translation strings for i18n support.\"\"\"\n\nTRANSLATIONS = {\n    \"en\": {\"greet\": \"Hello, {name}!\", \"farewell\": \"Goodbye, {name}!\"},\n    \"es\": {\"greet\": \"Hola, {name}!\", \"farewell\": \"Adiós, {name}!\"},\n    \"fr\": {\"greet\": \"Bonjour, {name}!\", \"farewell\": \"Au revoir, {name}!\"}\n}\n\n\ndef get_translation(key, locale=\"en\"):\n    translations = TRANSLATIONS.get(locale, TRANSLATIONS[\"en\"])\n    return translations.get(key, TRANSLATIONS[\"en\"][key])\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Created src/translations.py with greeting translations for en, es, and fr locales.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-2",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/greeting.py",
+          "content": "\"\"\"Greeting module with i18n support.\"\"\"\nfrom src.translations import get_translation\n\n\ndef greet(name, locale=\"en\"):\n    template = get_translation(\"greet\", locale)\n    return template.format(name=name)\n\n\ndef farewell(name, locale=\"en\"):\n    template = get_translation(\"farewell\", locale)\n    return template.format(name=name)\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Updated greet and farewell to accept locale parameter using translations module.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-3",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/main.py",
+          "content": "\"\"\"Main entry point with i18n demo.\"\"\"\nfrom src.greeting import greet\n\n\ndef main():\n    for locale in [\"en\", \"es\", \"fr\"]:\n        print(greet(\"World\", locale=locale))\n\n\nif __name__ == \"__main__\":\n    main()\n"
+        },
+        {
+          "type": "write",
+          "path": "tests/test_greeting.py",
+          "content": "\"\"\"Tests for greeting module with i18n.\"\"\"\nfrom src.greeting import greet, farewell\n\n\ndef test_greet_english():\n    assert greet(\"Alice\") == \"Hello, Alice!\"\n\n\ndef test_greet_spanish():\n    assert greet(\"Alice\", locale=\"es\") == \"Hola, Alice!\"\n\n\ndef test_greet_french():\n    assert greet(\"Alice\", locale=\"fr\") == \"Bonjour, Alice!\"\n\n\ndef test_farewell_english():\n    assert farewell(\"Alice\") == \"Goodbye, Alice!\"\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Updated main.py for i18n demo and added locale-specific tests.",
+        "notes": ""
+      },
+      "exit_code": 0
+    }
+  ]
+}

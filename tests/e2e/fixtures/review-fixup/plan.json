@@ -1,0 +1,25 @@
+{
+  "goal": "Add structured logging with log levels to replace print-based logging",
+  "context": "Python application using simple print-based logging. Replace with structured logging that supports log levels and timestamps.",
+  "defaultModel": "mock",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Add log levels and structured output",
+      "goal": "Refactor logger.py to support log levels (DEBUG, INFO, WARN, ERROR) and output structured JSON log lines.",
+      "files": ["src/logger.py"],
+      "constraints": ["Use stdlib only, no external logging framework", "Each log line must be valid JSON"],
+      "acceptance": ["logger.py supports log levels", "Output is structured JSON"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-2",
+      "title": "Update application to use log levels",
+      "goal": "Update app.py to use the new log level functions (info, error, debug) instead of generic log/log_error.",
+      "files": ["src/app.py"],
+      "constraints": ["Use appropriate log levels for each message"],
+      "acceptance": ["app.py uses info() for normal messages and error() for errors"],
+      "dependsOn": ["task-1"]
+    }
+  ]
+}

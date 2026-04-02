@@ -1,0 +1,49 @@
+{
+  "tasks": [
+    {
+      "match": "task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/constants.py",
+          "content": "\"\"\"Application constants.\"\"\"\n\nVERSION = \"2.0.0\"\nAPP_NAME = \"myapp\"\nMAX_RETRIES = 3\nTIMEOUT = 30\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Bumped VERSION to 2.0.0 in constants.py.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-2",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/constants.py",
+          "content": "\"\"\"Application constants.\"\"\"\n\nVERSION = \"1.0.0\"\nAPP_NAME = \"myapp\"\nMAX_RETRIES = 5\nTIMEOUT = 60\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Updated TIMEOUT to 60 and MAX_RETRIES to 5 in constants.py.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "merge-resolve",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/constants.py",
+          "content": "\"\"\"Application constants.\"\"\"\n\nVERSION = \"2.0.0\"\nAPP_NAME = \"myapp\"\nMAX_RETRIES = 5\nTIMEOUT = 60\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Resolved merge conflict in constants.py: kept VERSION=2.0.0 from task-1 and TIMEOUT=60, MAX_RETRIES=5 from task-2.",
+        "notes": ""
+      },
+      "exit_code": 0
+    }
+  ]
+}

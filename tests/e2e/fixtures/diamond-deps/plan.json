@@ -1,0 +1,43 @@
+{
+  "goal": "Split auth.py into token, session, and middleware modules with a shared types module",
+  "context": "Python auth module with token verification, session management, and middleware all in one file. Extract into separate modules: shared types first (A), then token and session in parallel (B, C), then middleware that depends on both (D).",
+  "defaultModel": "mock",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Create shared auth types",
+      "goal": "Create src/auth_types.py with shared type definitions (Claims, Session) used by token, session, and middleware modules.",
+      "files": ["src/auth_types.py"],
+      "constraints": ["Use dataclasses for type definitions"],
+      "acceptance": ["src/auth_types.py exists with Claims and Session types"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-2",
+      "title": "Extract token module",
+      "goal": "Move verify_token from auth.py to src/token.py, importing Claims from auth_types.",
+      "files": ["src/auth.py", "src/token.py"],
+      "constraints": ["Import Claims from auth_types"],
+      "acceptance": ["src/token.py exists with verify_token function", "verify_token returns Claims type"],
+      "dependsOn": ["task-1"]
+    },
+    {
+      "id": "task-3",
+      "title": "Extract session module",
+      "goal": "Move create_session from auth.py to src/session.py, importing Session from auth_types.",
+      "files": ["src/auth.py", "src/session.py"],
+      "constraints": ["Import Session from auth_types"],
+      "acceptance": ["src/session.py exists with create_session function", "create_session returns Session type"],
+      "dependsOn": ["task-1"]
+    },
+    {
+      "id": "task-4",
+      "title": "Extract middleware module",
+      "goal": "Move auth_middleware from auth.py to src/middleware.py, importing from both token and session modules.",
+      "files": ["src/auth.py", "src/middleware.py"],
+      "constraints": ["Import verify_token from token module", "Import create_session from session module"],
+      "acceptance": ["src/middleware.py exists with auth_middleware function", "auth.py is now a thin re-export facade"],
+      "dependsOn": ["task-2", "task-3"]
+    }
+  ]
+}

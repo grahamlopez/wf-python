@@ -1,0 +1,54 @@
+{
+  "tasks": [
+    {
+      "match": "task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/parser.py",
+          "content": "\"\"\"Parser stage of the data pipeline.\"\"\"\n\nParseResult = list[str]\n\n\ndef parse(raw: str) -> ParseResult:\n    return raw.strip().split(\"\\n\")\n"
+        },
+        {
+          "type": "write",
+          "path": "src/data.py",
+          "content": "\"\"\"Data processing pipeline.\"\"\"\nfrom src.parser import parse\nfrom src.transform import transform\nfrom src.formatter import format_output\n\n\ndef process(raw_input):\n    parsed = parse(raw_input)\n    transformed = transform(parsed)\n    return format_output(transformed)\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Extracted parse function into src/parser.py with ParseResult type.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-2",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/transform.py",
+          "content": "\"\"\"Transform stage of the data pipeline.\"\"\"\nfrom src.parser import ParseResult\n\nTransformResult = list[str]\n\n\ndef transform(lines: ParseResult) -> TransformResult:\n    return [line.upper() for line in lines]\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Extracted transform function into src/transform.py consuming ParseResult.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-3",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/formatter.py",
+          "content": "\"\"\"Formatter stage of the data pipeline.\"\"\"\nfrom src.transform import TransformResult\n\n\ndef format_output(lines: TransformResult) -> str:\n    return \"\\n\".join(lines)\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Extracted format_output into src/formatter.py consuming TransformResult.",
+        "notes": ""
+      },
+      "exit_code": 0
+    }
+  ]
+}

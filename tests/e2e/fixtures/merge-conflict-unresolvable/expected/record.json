@@ -1,0 +1,7 @@
+{
+  "implementation": {
+    "events": [
+      {"event": "mergeResolveFailed"}
+    ]
+  }
+}

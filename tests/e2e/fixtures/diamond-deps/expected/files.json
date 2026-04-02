@@ -1,0 +1,9 @@
+[
+  "src/auth.py",
+  "src/auth_types.py",
+  "src/token.py",
+  "src/session.py",
+  "src/middleware.py",
+  "src/config.py",
+  "tests/test_auth.py"
+]

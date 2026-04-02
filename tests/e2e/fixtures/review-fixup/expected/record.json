@@ -1,0 +1,21 @@
+{
+  "implementation": {
+    "tasks": {
+      "task-1": {"status": "done"},
+      "task-2": {"status": "done"}
+    }
+  },
+  "reviews": [
+    {
+      "findingsActionable": true,
+      "fixupPlan": {
+        "goal": "Fix review findings: use timezone-aware UTC timestamps"
+      },
+      "fixupImplementation": {
+        "tasks": {
+          "fixup-task-1": {"status": "done"}
+        }
+      }
+    }
+  ]
+}

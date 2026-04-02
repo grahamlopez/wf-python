@@ -1,0 +1,34 @@
+{
+  "goal": "Add internationalization support to the greeting module",
+  "context": "Simple Python greeting module. Add i18n support with a translations module and update the greeting functions to accept a locale parameter. This is a full lifecycle test: init → plan → execute → review → close.",
+  "defaultModel": "mock",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Create translations module",
+      "goal": "Create src/translations.py with a dictionary of greeting translations for English, Spanish, and French.",
+      "files": ["src/translations.py"],
+      "constraints": ["Use a simple dict mapping locale codes to greeting templates", "Support en, es, fr locales"],
+      "acceptance": ["src/translations.py exists", "Contains translations for en, es, fr"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-2",
+      "title": "Update greeting functions for i18n",
+      "goal": "Update greet and farewell in greeting.py to accept an optional locale parameter and use translations.",
+      "files": ["src/greeting.py", "src/translations.py"],
+      "constraints": ["Default locale is 'en'", "Fallback to English if locale not found"],
+      "acceptance": ["greet('Alice', locale='es') returns Spanish greeting", "Default behavior unchanged"],
+      "dependsOn": ["task-1"]
+    },
+    {
+      "id": "task-3",
+      "title": "Update main and tests for i18n",
+      "goal": "Update main.py to demonstrate i18n usage and add tests for Spanish and French greetings.",
+      "files": ["src/main.py", "tests/test_greeting.py"],
+      "constraints": ["Add at least one test per supported locale"],
+      "acceptance": ["Tests cover en, es, fr locales", "main.py shows multi-locale output"],
+      "dependsOn": ["task-2"]
+    }
+  ]
+}

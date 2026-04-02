@@ -1,0 +1,5 @@
+[
+  "src/calculator.py",
+  "src/utils.py",
+  "tests/test_calc.py"
+]

@@ -1,0 +1,49 @@
+{
+  "tasks": [
+    {
+      "match": "task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/worker.py",
+          "content": "\"\"\"Worker module with retry logic.\"\"\"\nimport time\n\n\ndef process_job(job_id, max_retries=3):\n    \"\"\"Process a job with exponential backoff retry.\"\"\"\n    for attempt in range(max_retries + 1):\n        try:\n            return {\"job_id\": job_id, \"status\": \"completed\"}\n        except Exception:\n            if attempt == max_retries:\n                raise\n            time.sleep(2 ** attempt)\n\n\ndef list_pending():\n    return []\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Added exponential backoff retry logic to process_job.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-2",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/queue.py",
+          "content": "\"\"\"Job queue with dead letter support.\"\"\"\n\n\nclass JobQueue:\n    def __init__(self):\n        self._jobs = []\n        self._dead_letters = []\n\n    def push(self, job):\n        self._jobs.append(job)\n\n    def pop(self):\n        return self._jobs.pop(0) if self._jobs else None\n\n    def report_failure(self, job, reason):\n        self._dead_letters.append({\"job\": job, \"reason\": reason})\n\n    @property\n    def dead_letters(self):\n        return list(self._dead_letters)\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Added dead letter queue and error reporting to JobQueue.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-3",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/worker.py",
+          "content": "\"\"\"Worker module with retry logic and queue integration.\"\"\"\nimport time\nfrom src.queue import JobQueue\n\n\ndef process_job(job_id, queue=None, max_retries=3):\n    \"\"\"Process a job with retry. Reports to queue on permanent failure.\"\"\"\n    for attempt in range(max_retries + 1):\n        try:\n            return {\"job_id\": job_id, \"status\": \"completed\"}\n        except Exception as e:\n            if attempt == max_retries:\n                if queue:\n                    queue.report_failure(job_id, str(e))\n                raise\n            time.sleep(2 ** attempt)\n\n\ndef list_pending():\n    return []\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Integrated worker retry exhaustion with queue dead letter reporting.",
+        "notes": ""
+      },
+      "exit_code": 0
+    }
+  ]
+}

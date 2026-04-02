@@ -1,0 +1,13 @@
+{
+  "implementation": {
+    "activeResources": {},
+    "tasks": {
+      "task-1": {"status": "pending"},
+      "task-2": {"status": "pending"},
+      "task-3": {"status": "pending"}
+    },
+    "events": [
+      {"event": "crashRecovery"}
+    ]
+  }
+}

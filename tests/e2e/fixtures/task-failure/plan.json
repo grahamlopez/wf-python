@@ -1,0 +1,43 @@
+{
+  "goal": "Add input validation, type hints, error handling, and documentation to the calculator module",
+  "context": "Simple Python calculator module. Four independent improvements, but error handling (task-3) depends on type hints (task-2) being in place first.",
+  "defaultModel": "mock",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Add input validation",
+      "goal": "Add runtime input validation to all calculator functions to reject non-numeric inputs.",
+      "files": ["src/calculator.py"],
+      "constraints": ["Raise TypeError for non-numeric inputs"],
+      "acceptance": ["All functions raise TypeError for string inputs"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-2",
+      "title": "Add type hints",
+      "goal": "Add type hints to all function signatures in calculator.py and utils.py.",
+      "files": ["src/calculator.py", "src/utils.py"],
+      "constraints": ["Use Python 3.12+ type hint syntax"],
+      "acceptance": ["All functions have parameter and return type annotations"],
+      "dependsOn": []
+    },
+    {
+      "id": "task-3",
+      "title": "Add error handling module",
+      "goal": "Create src/errors.py with custom exception classes and update calculator to use them instead of built-in exceptions.",
+      "files": ["src/calculator.py", "src/errors.py"],
+      "constraints": ["Custom exceptions must use typed attributes from task-2"],
+      "acceptance": ["src/errors.py exists with custom exception classes", "calculator.py uses custom exceptions"],
+      "dependsOn": ["task-2"]
+    },
+    {
+      "id": "task-4",
+      "title": "Add docstrings",
+      "goal": "Add comprehensive docstrings to all functions in calculator.py and utils.py.",
+      "files": ["src/calculator.py", "src/utils.py"],
+      "constraints": ["Use Google-style docstrings"],
+      "acceptance": ["All functions have docstrings with Args and Returns sections"],
+      "dependsOn": []
+    }
+  ]
+}

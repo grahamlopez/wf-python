@@ -1,0 +1,43 @@
+{
+  "tasks": [
+    {
+      "match": "task-1",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/schema.py",
+          "content": "\"\"\"Database schema definition - normalized.\"\"\"\n\n\ndef get_user_table():\n    return [\n        {\n            \"name\": \"users\",\n            \"columns\": [\n                {\"name\": \"id\", \"type\": \"INTEGER\", \"primary\": True},\n                {\"name\": \"name\", \"type\": \"TEXT\"},\n                {\"name\": \"email\", \"type\": \"TEXT\"}\n            ]\n        },\n        {\n            \"name\": \"user_profiles\",\n            \"columns\": [\n                {\"name\": \"id\", \"type\": \"INTEGER\", \"primary\": True},\n                {\"name\": \"user_id\", \"type\": \"INTEGER\", \"foreign_key\": \"users.id\"},\n                {\"name\": \"bio\", \"type\": \"TEXT\"},\n                {\"name\": \"avatar_url\", \"type\": \"TEXT\"}\n            ]\n        }\n    ]\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Normalized user schema into users and user_profiles tables.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "task-2",
+      "operations": [
+        {
+          "type": "write",
+          "path": "src/schema.py",
+          "content": "\"\"\"Database schema definition - denormalized.\"\"\"\n\n\ndef get_user_table():\n    return {\n        \"name\": \"users\",\n        \"columns\": [\n            {\"name\": \"id\", \"type\": \"INTEGER\", \"primary\": True},\n            {\"name\": \"name\", \"type\": \"TEXT\"},\n            {\"name\": \"email\", \"type\": \"TEXT\"},\n            {\"name\": \"bio\", \"type\": \"TEXT\"},\n            {\"name\": \"avatar_url\", \"type\": \"TEXT\"},\n            {\"name\": \"settings_json\", \"type\": \"TEXT\"}\n        ]\n    }\n"
+        }
+      ],
+      "report_result": {
+        "summary": "Denormalized user schema into single wide table with all profile columns.",
+        "notes": ""
+      },
+      "exit_code": 0
+    },
+    {
+      "match": "merge-resolve",
+      "operations": [],
+      "report_result": {
+        "summary": "Cannot resolve conflict: normalized and denormalized approaches are fundamentally incompatible.",
+        "notes": "The two schemas have completely different structures (list of tables vs single table dict). No automatic merge is possible."
+      },
+      "exit_code": 1
+    }
+  ]
+}

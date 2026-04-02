@@ -1,0 +1,4 @@
+{
+  "minCommits": 2,
+  "commitMessagePatterns": ["task-1", "task-2"]
+}
