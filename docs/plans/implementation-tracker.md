@@ -8,7 +8,7 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 
 | Phase | Description | Status | Tasks | Notes |
 |-------|-------------|--------|-------|-------|
-| 0 | Scaffold | **submitted** | 7 | Directory structure, type stubs, module stubs, schema, test infra, fixtures, placeholder tests |
+| 0 | Scaffold | **complete** | 7 | Directory structure, type stubs, module stubs, schema, test infra, fixtures, placeholder tests |
 | 1 | Pure Foundation | not started | — | types, validate, config, brief, render, templates + unit tests |
 | 2 | Git/IO Layer | not started | — | git, worktree, record, log + integration tests |
 | 3 | Profiles + Runner | not started | — | profiles, adapters, runner, tmux + profile/adapter tests |
@@ -37,7 +37,7 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 - `python3 -c "from wflib import types"` succeeds
 
 **Started:** 2026-04-02
-**Completed:** —
+**Completed:** 2026-04-02
 
 **Intentional deviations (approved):**
 
@@ -46,8 +46,14 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 3. **All 9 E2E fixtures created** — Strategy says "at least `simple-split/`, `diamond-deps/`, `task-failure/`" (3 minimum). Owner directed "keep everything together in phase 0 — all tests should run (red)."
 4. **`unittest.skip` chosen over `pytest.mark.skip`** — Both listed as options in the strategy doc. Chose `unittest.skip` because the spec says "No external test dependencies" and tests should be runnable via `python3 -m unittest discover tests/`. `pytest.mark.skip` would require pytest to be installed for the import to succeed.
 
-**Lessons learned:** —
-**Spec adjustments:** —
+**Lessons learned:**
+
+- **Missing `.gitignore` caused merge conflicts.** Subagents ran Python to verify their work, generating `__pycache__/` directories that got committed. These binary files then conflicted during worktree merge-back. Fix: added `.gitignore` excluding `__pycache__/`, `*.pyc`, `.pytest_cache/`. This should be part of any Phase 0 scaffold in future projects.
+- **Fixture repo test files get collected by pytest.** The mini Python projects inside `tests/e2e/fixtures/*/repo/tests/` were picked up by pytest's test discovery, causing import errors (their `from src.app import ...` doesn't resolve). Fix: added `norecursedirs = tests/e2e/fixtures` to `pytest.ini`.
+- **task-4 merge conflict required manual resolution.** The conflict was entirely in `.pyc` files, not source code. After adding `.gitignore` and cleaning the cache files from both sides, the task-4 source files were copied directly to main. The orphaned worktree was cleaned up.
+- **conftest.py correctly uses pytest.** The `tests/e2e/conftest.py` imports pytest for fixtures (`@pytest.fixture`, `monkeypatch`). This is expected — conftest files are pytest-specific infrastructure. The stdlib compatibility constraint (unittest.skip, unittest.TestCase) applies to the test files themselves, not to conftest.
+
+**Spec adjustments:** None needed.
 
 ---
 
