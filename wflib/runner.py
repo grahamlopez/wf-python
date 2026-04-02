@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import os
+import subprocess
+import tempfile
 
 from wflib.types import (
     ModelsConfig,
@@ -43,7 +45,74 @@ def spawn_headless(
     models_config: ModelsConfig | None = None,
 ) -> AgentResult:
     """Spawn a headless agent subprocess."""
-    raise NotImplementedError("spawn_headless: not yet implemented")
+    results_path = os.environ.get("WF_RESULTS_PATH")
+    if not results_path:
+        results_path = os.path.join(cwd, "results.json")
+
+    system_prompt_file: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as handle:
+            handle.write(system_prompt)
+            handle.flush()
+            system_prompt_file = handle.name
+
+        cmd = profile.build_headless_cmd(
+            system_prompt_file=system_prompt_file,
+            model=model,
+            tools=tools,
+            prompt=prompt,
+            cmd_override=cmd_override,
+            models_config=models_config,
+        )
+
+        env = os.environ.copy()
+        env.setdefault("WF_RESULTS_PATH", results_path)
+
+        timeout = None
+        try:
+            completed = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=cwd,
+                timeout=timeout,
+                env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return AgentResult(
+                exit_code=1,
+                error=f"Agent timed out after {exc.timeout} seconds",
+            )
+
+        results = profile.parse_headless_output(completed.stdout)
+        if results or not os.path.exists(results_path):
+            try:
+                results_dir = os.path.dirname(results_path)
+                if results_dir:
+                    os.makedirs(results_dir, exist_ok=True)
+                with open(results_path, "w", encoding="utf-8") as handle:
+                    json.dump(results, handle)
+            except OSError as exc:
+                return AgentResult(
+                    exit_code=1,
+                    error=f"Failed to write results file: {results_path}: {exc}",
+                )
+
+        if completed.returncode != 0 and not os.path.exists(results_path):
+            error = completed.stderr.strip() or (
+                f"Agent exited with code {completed.returncode}"
+            )
+            return AgentResult(exit_code=completed.returncode, error=error)
+
+        return _read_agent_results(results_path)
+    except Exception as exc:
+        return AgentResult(exit_code=1, error=f"Failed to spawn agent: {exc}")
+    finally:
+        if system_prompt_file and os.path.exists(system_prompt_file):
+            try:
+                os.remove(system_prompt_file)
+            except OSError:
+                pass
 
 
 def spawn_in_tmux(
