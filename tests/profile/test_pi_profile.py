@@ -131,13 +131,181 @@ class TestPiTmuxWrapper(unittest.TestCase):
 
 
 class TestPiRecordedOutput(unittest.TestCase):
-    @unittest.skip("Phase 3: depends on adapter implementation")
     def test_parse_headless_json_mode(self):
         """Recorded pi --mode json stdout parsed into correct results dict."""
+        import json
 
-    @unittest.skip("Phase 3: depends on adapter implementation")
+        profile = PiProfile()
+        messages = [
+            {
+                "id": "msg-user-1",
+                "role": "user",
+                "content": [{"type": "text", "text": "Summarize progress."}],
+            },
+            {
+                "id": "msg-assistant-1",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Drafting summary."}],
+            },
+            {
+                "id": "msg-assistant-2",
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Done."},
+                    {
+                        "type": "toolCall",
+                        "name": "report_result",
+                        "arguments": {"summary": "Summary", "notes": ""},
+                    },
+                ],
+            },
+        ]
+
+        stdout = "\n".join(
+            json.dumps(event)
+            for event in [
+                {"type": "session", "id": "session-123"},
+                {
+                    "type": "message_end",
+                    "message": {
+                        "id": "msg-user-1",
+                        "role": "user",
+                        "content": messages[0]["content"],
+                    },
+                },
+                {
+                    "type": "message_end",
+                    "message": {
+                        "id": "msg-assistant-1",
+                        "role": "assistant",
+                        "model": "pi-sonnet-4.5",
+                        "provider": "anthropic",
+                        "content": messages[1]["content"],
+                        "usage": {
+                            "input": 20,
+                            "output": 8,
+                            "cacheRead": 1,
+                            "cacheWrite": 0,
+                            "cost": {"total": 0.004},
+                        },
+                    },
+                },
+                {
+                    "type": "message_end",
+                    "message": {
+                        "id": "msg-assistant-2",
+                        "role": "assistant",
+                        "model": "pi-sonnet-4.5",
+                        "provider": "anthropic",
+                        "content": messages[2]["content"],
+                        "usage": {
+                            "input": 10,
+                            "output": 5,
+                            "cacheRead": 2,
+                            "cacheWrite": 1,
+                            "cost": {"total": 0.003},
+                        },
+                    },
+                },
+                {"type": "agent_end", "messages": messages, "exitCode": 0},
+            ]
+        )
+
+        result = profile.parse_headless_output(stdout)
+        self.assertEqual(result["exitCode"], 0)
+        self.assertEqual(result["messages"], messages)
+        self.assertEqual(result["model"], "pi-sonnet-4.5")
+        self.assertEqual(result["provider"], "anthropic")
+        self.assertEqual(
+            result["usage"],
+            {
+                "input": 30,
+                "output": 13,
+                "cacheRead": 3,
+                "cacheWrite": 1,
+                "cost": 0.007,
+                "turns": 2,
+            },
+        )
+
     def test_parse_session_output(self):
         """Recorded pi session .jsonl parsed into correct results dict."""
+        import json
+        import os
+        import tempfile
+
+        profile = PiProfile()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_path = os.path.join(tmpdir, "session.jsonl")
+            results_file = os.path.join(tmpdir, "results.json")
+            entries = [
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "Status?"}],
+                    },
+                },
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Working."}],
+                        "usage": {
+                            "input": 12,
+                            "output": 4,
+                            "cacheRead": 1,
+                            "cacheWrite": 0,
+                            "cost": {"total": 0.002},
+                            "turns": 1,
+                        },
+                        "model": "pi-haiku-4.5",
+                        "provider": "anthropic",
+                    },
+                },
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Ready."}],
+                        "usage": {
+                            "input": 8,
+                            "output": 3,
+                            "cacheRead": 0,
+                            "cacheWrite": 1,
+                            "cost": {"total": 0.0015},
+                            "turns": 1,
+                        },
+                        "model": "pi-haiku-4.5",
+                        "provider": "anthropic",
+                    },
+                },
+            ]
+            with open(session_path, "w", encoding="utf-8") as f:
+                for entry in entries:
+                    f.write(json.dumps(entry) + "\n")
+
+            result = profile.parse_session_output(tmpdir, results_file)
+            self.assertEqual(result["exitCode"], 0)
+            self.assertEqual([m["role"] for m in result["messages"]], [
+                "user",
+                "assistant",
+                "assistant",
+            ])
+            self.assertEqual(result["messages"][1]["content"][0]["text"], "Working.")
+            self.assertEqual(result["model"], "pi-haiku-4.5")
+            self.assertEqual(result["provider"], "anthropic")
+            self.assertEqual(
+                result["usage"],
+                {
+                    "input": 20,
+                    "output": 7,
+                    "cacheRead": 1,
+                    "cacheWrite": 1,
+                    "cost": 0.0035,
+                    "turns": 2,
+                },
+            )
 
 
 if __name__ == "__main__":

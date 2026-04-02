@@ -89,9 +89,70 @@ class TestClaudeCodeTmuxNotSupported(unittest.TestCase):
 
 
 class TestClaudeCodeRecordedOutput(unittest.TestCase):
-    @unittest.skip("Phase 3")
     def test_parse_stream_json_output(self):
         """Recorded stream-json stdout parsed into correct results dict."""
+        import json
+
+        profile = ClaudeCodeProfile()
+        stdout = "\n".join(
+            json.dumps(event)
+            for event in [
+                {
+                    "type": "assistant",
+                    "message": {"role": "assistant", "content": []},
+                },
+                {"type": "text", "text": "Drafting"},
+                {
+                    "type": "tool_use",
+                    "name": "report_result",
+                    "input": {"summary": "All set", "notes": ""},
+                },
+                {
+                    "type": "result",
+                    "model": "claude-sonnet-4-5",
+                    "usage": {
+                        "input_tokens": 18,
+                        "output_tokens": 6,
+                        "cache_read_input_tokens": 2,
+                        "cache_creation_input_tokens": 1,
+                        "cost": 0.012,
+                        "turns": 1,
+                    },
+                },
+            ]
+        )
+
+        result = profile.parse_headless_output(stdout)
+        self.assertEqual(result["exitCode"], 0)
+        self.assertEqual(result["model"], "claude-sonnet-4-5")
+        self.assertEqual(result["provider"], "anthropic")
+        self.assertEqual(
+            result["usage"],
+            {
+                "input": 18,
+                "output": 6,
+                "cacheRead": 2,
+                "cacheWrite": 1,
+                "cost": 0.012,
+                "turns": 1,
+            },
+        )
+        self.assertEqual(
+            result["messages"],
+            [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Drafting"},
+                        {
+                            "type": "toolCall",
+                            "name": "report_result",
+                            "arguments": {"summary": "All set", "notes": ""},
+                        },
+                    ],
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":
