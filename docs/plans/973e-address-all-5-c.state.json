@@ -66,11 +66,76 @@
   },
   "planId": "973e",
   "statuses": {
-    "task-1": "pending",
-    "task-2": "pending",
-    "task-3": "pending"
+    "task-1": "done",
+    "task-2": "done",
+    "task-3": "done"
   },
-  "results": {},
+  "results": {
+    "task-1": {
+      "taskId": "task-1",
+      "title": "Fix record.py: use _now_iso() and strengthen record_event signature",
+      "exitCode": 0,
+      "summary": "Fixed two code review findings in `wflib/record.py`: (1) replaced inline datetime formatting in `create_record` with a call to `_now_iso()`, and (2) changed `record_event`'s `event` parameter type from `str` to `ImplementationEventType`, removing the internal cast and updating the docstring and test call sites.",
+      "filesChanged": [
+        "wflib/record.py",
+        "tests/integration/test_record.py"
+      ],
+      "notes": "",
+      "usage": {
+        "input": 3610,
+        "output": 1501,
+        "cacheRead": 35630,
+        "cacheWrite": 12957,
+        "cost": 0.15437125000000002,
+        "turns": 5
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "tests/integration/test_record.py |  4 ++--\n wflib/record.py                  | 15 +++++++++++----\n 2 files changed, 13 insertions(+), 6 deletions(-)"
+    },
+    "task-3": {
+      "taskId": "task-3",
+      "title": "Extract shared init_repo helper for integration tests",
+      "exitCode": 0,
+      "summary": "Extracted the duplicated `init_repo` helper from `test_git.py` and `test_worktree.py` into a shared `tests/integration/helpers.py` module, with the `with_commit=True` parameter from `test_git.py`'s version. Updated both test files to import from the shared module.",
+      "filesChanged": [
+        "tests/integration/helpers.py",
+        "tests/integration/test_git.py",
+        "tests/integration/test_worktree.py"
+      ],
+      "notes": "",
+      "usage": {
+        "input": 3607,
+        "output": 2647,
+        "cacheRead": 73933,
+        "cacheWrite": 14061,
+        "cost": 0.20905775000000001,
+        "turns": 8
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "tests/integration/helpers.py       | 30 ++++++++++++++++++++++++++++++\n tests/integration/test_git.py      | 27 +--------------------------\n tests/integration/test_record.py   |  4 ++--\n tests/integration/test_worktree.py | 26 +-------------------------\n wflib/record.py                    | 15 ++++-----------\n 5 files changed, 38 insertions(+), 64 deletions(-)"
+    },
+    "task-2": {
+      "taskId": "task-2",
+      "title": "Fix worktree.py: no-commits fallback and document mid-rebase intent",
+      "exitCode": 0,
+      "summary": "Fixed two issues in `wflib/worktree.py`: (1) `commit_or_amend_workflow_files` now handles brand-new repos with no commits by falling back to a fresh commit instead of raising RuntimeError, and (2) added a comment block in `merge_back` explaining the intentional mid-rebase state on conflict for `task_executor._merge_and_cleanup`.",
+      "filesChanged": [
+        "wflib/worktree.py",
+        "tests/integration/test_worktree.py"
+      ],
+      "notes": "",
+      "usage": {
+        "input": 3663,
+        "output": 3031,
+        "cacheRead": 165889,
+        "cacheWrite": 18821,
+        "cost": 0.29466574999999995,
+        "turns": 13
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "tests/integration/helpers.py       | 30 --------------------\n tests/integration/test_git.py      | 27 +++++++++++++++++-\n tests/integration/test_record.py   |  4 +--\n tests/integration/test_worktree.py | 56 +++++++++++++++++++++++++++++++++++++-\n wflib/record.py                    | 15 +++-------\n wflib/worktree.py                  | 14 +++++++---\n 6 files changed, 97 insertions(+), 49 deletions(-)"
+    }
+  },
   "planningUsage": {
     "input": 0,
     "output": 0,
@@ -80,5 +145,6 @@
     "turns": 0
   },
   "planningModel": "nvinf-anthropic/aws/anthropic/bedrock-claude-opus-4-6",
-  "planFile": "docs/plans/973e-address-all-5-c.md"
+  "planFile": "docs/plans/973e-address-all-5-c.md",
+  "baseCommit": "17eea585b316995ce2c3ac145fadc0792c649e83"
 }
