@@ -148,7 +148,22 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 
 **Planned scope:** Profile protocol + registry, pi.py, claude_code.py, mock.py, all adapters, runner.py, tmux.py + profile/adapter tests
 
-**Acceptance criteria:** All `tests/unit/test_profiles.py`, `tests/profile/`, `tests/adapter/` pass
+**Acceptance criteria:** All `tests/unit/test_profiles.py`, `tests/profile/`, `tests/adapter/` pass; all `tests/integration/test_tmux.py` pass; `runner.py` extraction functions (`extract_report_result`, `extract_summary_fallback`, `_read_agent_results`) pass
+
+**Pre-planning readiness notes:**
+- 290 passed, 133 skipped (all Phase 3+). Foundation is solid.
+- `resolve_alias` and `get_profile` in `profiles/__init__.py` are still `NotImplementedError` — implement first since everything depends on them.
+- Adapter tests need recorded output fixtures. Real pi `--mode json` output captured (NDJSON with `session`, `agent_start`, `message_start`, `message_end`, `turn_end`, `agent_end` events; usage in `message_end` with `cost` sub-object; model/provider on message objects). Session `.jsonl` format also captured (NDJSON with `{type: "message", message: {...}}` entries). Claude Code `stream-json` will need synthetic fixtures (no live harness available).
+- `runner.py` is in scope — the extraction functions (`extract_report_result`, `extract_summary_fallback`, `_read_agent_results`) and `spawn_headless` are needed by Phase 4's task executor. `spawn_in_tmux` depends on `tmux.py`.
+- Phase 0 test skeletons exist for all target files: 26 profile tests, 17 adapter tests, 8 tmux tests + 10 profile integration tests.
+
+**Planned deviations from spec (approved before execution):**
+
+1. **Synthetic inline test fixtures instead of committed recorded real output.** The spec says profile/adapter tests should use "actual pi `--mode json` stdout and session `.jsonl` files from real runs, committed as fixtures." The plan uses synthetic but structurally accurate NDJSON fixtures defined inline in the test files instead. Reason: real pi session data includes massive encrypted content blobs (tool call IDs, signatures) that are 10KB+ per entry — unwieldy as fixture files and opaque to readers. Synthetic fixtures that match the structural format are more maintainable, self-documenting, and test the same parsing logic. If format drift becomes a concern, real captured fixtures can be added later as a supplementary test layer.
+
+2. **New `tests/unit/test_runner.py` not in spec's test structure.** The spec doesn't list a dedicated runner unit test file — it tests runner through profile/adapter tests and E2E tests. The plan adds `tests/unit/test_runner.py` for the three pure extraction functions (`extract_report_result`, `extract_summary_fallback`, `_read_agent_results`). Reason: these are pure functions with clear input/output contracts that benefit from isolated unit testing, especially the fallback and error handling paths.
+
+3. **Runner durability copying (`docs/workflows/.sessions/`) deferred to Phase 4.** The spec puts the "copy results to `docs/workflows/.sessions/` for durability" step inside `runner.py`'s `spawn_headless`/`spawn_in_tmux`. The plan has the runner focused on subprocess lifecycle only — producing results locally. The durability copy is handled by `task_executor._preserve_results` in Phase 4, which knows the workflow name and session paths. Reason: the runner is profile-driven and workflow-agnostic; durability is a workflow-level concern. This keeps a cleaner boundary.
 
 **Review findings to address:**
 - **Finding #9:** `RunnerProfile` import was fixed in Phase 0 cleanup, but the real implementation in `task_executor.py` needs to wire up the profile protocol properly

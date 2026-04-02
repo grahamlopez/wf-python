@@ -1,0 +1,351 @@
+{
+  "plan": {
+    "goal": "Implement Phase 3: Profiles, Adapters, Runner, and Tmux — turning all 60+ NotImplementedError stubs in profiles/, adapters/, wflib/runner.py, and wflib/tmux.py into working implementations, with all Phase 3 tests passing.",
+    "context": "This is the `wf` project — a Python 3.12+ stdlib-only CLI tool for structured AI development workflows. Phases 0-2 are complete (290 tests passing): types/serialization, config, validation, brief assembly, render, templates, git, worktree, record, log. Phase 3 implements the harness abstraction layer: profile protocol + registry, three profiles (pi, claude-code, mock), three output adapters (pi JSON mode, pi session, Claude stream-json), the agent runner (subprocess spawning + result extraction), and tmux pane management. The spec lives at `docs/plans/wf-spec.md`, the strategy at `docs/plans/impl-strategy.md`, and the tracker at `docs/plans/implementation-tracker.md`. All test skeletons exist with `@unittest.skip(\"Phase 3\")` — the task is to implement the code and unskip tests. Key pi output format: NDJSON events with `message_end` carrying final message + usage (with `cost` sub-object containing `input`, `output`, `cacheRead`, `cacheWrite`, `total`), `agent_end` carrying full message list. Session format: NDJSON `{type:\"message\", message:{...}}` entries.",
+    "tasks": [
+      {
+        "id": "task-1",
+        "title": "Profile registry + resolve_alias",
+        "goal": "Implement `resolve_alias()` and `get_profile()` in `profiles/__init__.py`. These are trivial but everything else in Phase 3 depends on them. `resolve_alias` does a two-layer dict lookup: config aliases override BUILTIN_ALIASES, unknown names pass through. `get_profile` returns PiProfile/ClaudeCodeProfile/MockProfile by name, raises ValueError for unknown names.",
+        "files": [
+          "profiles/__init__.py",
+          "profiles/pi.py",
+          "profiles/claude_code.py",
+          "profiles/mock.py",
+          "docs/plans/wf-spec.md"
+        ],
+        "constraints": [
+          "Config aliases (models_config.aliases) take precedence over BUILTIN_ALIASES",
+          "Unknown alias names pass through unchanged (no error)",
+          "get_profile supports 'pi', 'claude-code', and 'mock' — raises ValueError with a clear message for anything else",
+          "Unskip and implement the 3 TestResolveAlias tests and 4 TestGetProfile tests in tests/unit/test_profiles.py"
+        ],
+        "acceptance": [
+          "resolve_alias('sonnet', ModelsConfig()) returns 'claude-sonnet-4-5'",
+          "resolve_alias('custom', ModelsConfig(aliases={'custom': 'my-model'})) returns 'my-model'",
+          "resolve_alias('unknown-thing', ModelsConfig()) returns 'unknown-thing'",
+          "get_profile('pi') returns a PiProfile instance",
+          "get_profile('unknown') raises ValueError",
+          "All 7 tests in TestResolveAlias + TestGetProfile pass (unskipped)"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "task-2",
+        "title": "Pi profile implementation",
+        "goal": "Implement all methods on PiProfile: _effective_map, resolve_model, list_models, build_headless_cmd, build_tmux_wrapper, parse_headless_output, parse_session_output, get_tool_paths. The profile encodes everything needed to drive pi: command construction with correct flags (--mode json, -p, --no-session, --no-extensions, --append-system-prompt, -e for tools + research + web-fetch), tmux wrapper script generation, and delegation to pi adapters for output parsing.",
+        "files": [
+          "profiles/pi.py",
+          "profiles/__init__.py",
+          "docs/plans/wf-spec.md",
+          "tests/unit/test_profiles.py",
+          "tests/profile/test_pi_profile.py"
+        ],
+        "constraints": [
+          "build_headless_cmd must produce: [cmd, '--mode', 'json', '-p', '--no-session', '--no-extensions', '--append-system-prompt', <file>, '-e', <research.ts>, '-e', <web-fetch/index.ts>, ...tools..., optional --model, prompt]",
+          "build_tmux_wrapper must produce a bash script with: shebang, trap for cleanup, optional PI_AUTO_CLOSE_DELAY export, pi invocation with --session-dir, adapter call, exit-code file write",
+          "Use shlex.quote for shell-safe argument escaping in tmux wrapper",
+          "parse_headless_output delegates to pi_json_mode.parse, parse_session_output delegates to pi_session.parse",
+          "resolve_model does two-stage resolution: resolve_alias first, then _effective_map lookup; None values in map mean unavailable (raise ValueError); unknown names pass through",
+          "Unskip and implement all PiProfile tests in tests/unit/test_profiles.py (TestPiModelResolution: 4 tests, TestPiCommandConstruction: 4 tests) and tests/profile/test_pi_profile.py (TestPiHeadlessCommand: 5 tests, TestPiTmuxWrapper: 3 tests). TestPiRecordedOutput tests (2 tests) depend on adapters — leave skipped with a note 'Phase 3: depends on adapter implementation'"
+        ],
+        "acceptance": [
+          "PiProfile().resolve_model('sonnet', ModelsConfig()) returns 'claude-sonnet-4-5'",
+          "PiProfile().resolve_model('gpt-4o', ModelsConfig()) returns 'openai/gpt-4o'",
+          "PiProfile().build_headless_cmd(...) starts with ['pi', '--mode', 'json', '-p', '--no-session', '--no-extensions']",
+          "build_headless_cmd includes -e flags for research.ts and web-fetch/index.ts",
+          "build_tmux_wrapper returns a string containing '#!/bin/bash' and 'trap' and the adapter invocation",
+          "All 16 unskipped PiProfile tests pass"
+        ],
+        "dependsOn": [
+          "task-1"
+        ]
+      },
+      {
+        "id": "task-3",
+        "title": "Claude Code + Mock profile implementations",
+        "goal": "Implement all methods on ClaudeCodeProfile and MockProfile. ClaudeCode: build_headless_cmd with [-p, --bare, --output-format, stream-json, --append-system-prompt-file, ...], MCP config generation via _build_mcp_config, model resolution (None values for gpt-4o/gemini = raise with available models list), tmux raises NotImplementedError. Mock: resolve_model just resolves aliases, build_headless_cmd returns ['python3', mock_agent, prompt], parse_headless_output returns empty dict (mock writes results.json directly), everything else as per spec.",
+        "files": [
+          "profiles/claude_code.py",
+          "profiles/mock.py",
+          "profiles/__init__.py",
+          "docs/plans/wf-spec.md",
+          "tests/unit/test_profiles.py",
+          "tests/profile/test_claude_code_profile.py"
+        ],
+        "constraints": [
+          "ClaudeCodeProfile.build_headless_cmd must include '--mcp-config' with JSON when tools are requested",
+          "ClaudeCodeProfile._build_mcp_config must point to tools/mcp_server.py with --tools flag",
+          "ClaudeCodeProfile.build_tmux_wrapper raises NotImplementedError with a user-friendly message",
+          "ClaudeCodeProfile.supports_tmux returns False",
+          "MockProfile.build_headless_cmd uses cmd_override or falls back to the tests/e2e/mock_agent.py path",
+          "MockProfile.list_models returns empty list",
+          "Unskip and implement: TestClaudeCodeModelResolution (2 tests), TestClaudeCodeCommandConstruction (3 tests), TestMockProfile (3 tests) in test_profiles.py, and TestClaudeCodeHeadlessCommand (4 tests), TestClaudeCodeTmuxNotSupported (2 tests) in test_claude_code_profile.py. TestClaudeCodeRecordedOutput (1 test) depends on adapter — leave skipped"
+        ],
+        "acceptance": [
+          "ClaudeCodeProfile().resolve_model('gpt-4o', ModelsConfig()) raises ValueError mentioning available models",
+          "ClaudeCodeProfile().build_headless_cmd(tools=['report-result'], ...) includes '--mcp-config'",
+          "MockProfile().build_headless_cmd(prompt='test', ...) returns list starting with ['python3', ...]",
+          "MockProfile().supports_tmux is False",
+          "All 14 unskipped ClaudeCode + Mock tests pass"
+        ],
+        "dependsOn": [
+          "task-1"
+        ]
+      },
+      {
+        "id": "task-4",
+        "title": "Pi JSON mode adapter",
+        "goal": "Implement `adapters/pi_json_mode.py` parse() function. This parses pi's `--mode json` NDJSON stdout into the standardized results dict. The format has events: session, agent_start, message_start, message_update, message_end, turn_start, turn_end, agent_end. The key events are `message_end` (carries per-message usage with `cost` sub-object) and `agent_end` (carries full messages list with accumulated usage). Extract: messages array (user + assistant with content blocks), total usage (accumulated from message_end events), model, provider. Also create realistic recorded output fixtures for tests.",
+        "files": [
+          "adapters/pi_json_mode.py",
+          "adapters/__init__.py",
+          "tests/adapter/test_pi_json_mode.py"
+        ],
+        "constraints": [
+          "Parse NDJSON line by line — skip malformed JSON lines gracefully (log warning, continue)",
+          "Extract messages from agent_end event's messages array",
+          "Accumulate usage across all message_end events: sum input, output, cacheRead, cacheWrite tokens; sum cost.total for cost; count assistant message_end events for turns",
+          "Extract model and provider from the first assistant message_end event",
+          "Return standardized dict: {exitCode, messages, usage: {input, output, cacheRead, cacheWrite, cost, turns}, model, provider}",
+          "Empty stdout returns a default error result dict",
+          "Create test fixture(s) with realistic NDJSON in the test file itself — synthesized but structurally accurate based on real pi output format",
+          "Unskip and implement all 6 TestPiJsonModeParse tests"
+        ],
+        "acceptance": [
+          "parse() with realistic multi-message NDJSON returns correct messages, usage totals, model, provider",
+          "parse() with tool call content blocks preserves them in messages",
+          "parse('') returns error result dict",
+          "parse() with a malformed line among valid lines still extracts what it can",
+          "All 6 adapter tests pass"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "task-5",
+        "title": "Pi session adapter",
+        "goal": "Implement `adapters/pi_session.py` parse() function. This parses pi session .jsonl files (written to --session-dir). The format is NDJSON with entries like {type: 'message', id, parentId, timestamp, message: {role, content, api, provider, model, usage, ...}}. Extract messages, accumulate usage, get model/provider. Also handle the case where a results_file already exists (tmux wrapper may have produced it).",
+        "files": [
+          "adapters/pi_session.py",
+          "tests/adapter/test_pi_session.py"
+        ],
+        "constraints": [
+          "The parse function signature is parse(session_dir: str, results_file: str | None = None) -> dict",
+          "If results_file exists and is valid JSON, read and return it directly (the tmux wrapper already produced results)",
+          "Otherwise, scan session_dir for .jsonl files, parse the most recent one",
+          "Extract messages from entries with type='message' — collect user and assistant messages in order",
+          "Accumulate usage from assistant message entries (same cost sub-object structure as JSON mode)",
+          "Handle missing session_dir gracefully — return error result dict",
+          "Create test fixtures with synthesized session NDJSON in the test file",
+          "Unskip and implement all 5 TestPiSessionParse tests"
+        ],
+        "acceptance": [
+          "parse() with a session dir containing a .jsonl file returns correct messages and usage",
+          "parse() extracts tool calls from session messages",
+          "parse() with a missing session_dir returns error result dict",
+          "parse() with an existing results_file returns its contents directly",
+          "All 5 adapter tests pass"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "task-6",
+        "title": "Claude Code stream-json adapter",
+        "goal": "Implement `adapters/claude_stream_json.py` parse() function. Claude Code's `--output-format stream-json` emits NDJSON events. Based on Claude Code's documented format: events include `assistant`, `text`, `tool_use`, `tool_result`, `result`. The `result` event has final usage and model. Convert tool_use events to toolCall content blocks matching wf's internal format.",
+        "files": [
+          "adapters/claude_stream_json.py",
+          "tests/adapter/test_claude_stream_json.py"
+        ],
+        "constraints": [
+          "Parse NDJSON line by line — skip malformed lines gracefully",
+          "Map Claude Code event types to wf's message format: tool_use → {type: 'toolCall', name, arguments}",
+          "Extract usage from the result event (input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens)",
+          "Map Claude's usage field names to wf's: input_tokens→input, output_tokens→output, cache_read_input_tokens→cacheRead, cache_creation_input_tokens→cacheWrite",
+          "Extract model from the result event",
+          "Create synthetic but structurally accurate test fixtures in the test file",
+          "Unskip and implement all 6 TestClaudeStreamJsonParse tests"
+        ],
+        "acceptance": [
+          "parse() with realistic stream-json NDJSON returns correct messages and usage",
+          "parse() converts tool_use events to toolCall content blocks",
+          "parse('') returns error result dict",
+          "All 6 adapter tests pass"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "task-7",
+        "title": "Runner: result extraction + _read_agent_results",
+        "goal": "Implement the three result extraction functions in wflib/runner.py: extract_report_result (delegates to types.extract_tool_call), extract_summary_fallback (last 500 chars of last assistant text), and _read_agent_results (reads results.json, runs extraction, builds AgentResult). These are pure functions that don't spawn processes — they're the pipeline from results.json → AgentResult used by both spawn modes.",
+        "files": [
+          "wflib/runner.py",
+          "wflib/types.py",
+          "docs/plans/wf-spec.md"
+        ],
+        "constraints": [
+          "extract_report_result delegates to extract_tool_call(messages, 'report_result') and wraps in ReportResult",
+          "extract_summary_fallback scans messages backwards for last assistant message with text content, returns last 500 chars",
+          "extract_summary_fallback returns empty string if no assistant text found",
+          "_read_agent_results reads JSON from results_path, extracts messages/usage/model/provider, runs extract_report_result for summary/notes, falls back to extract_summary_fallback",
+          "_read_agent_results handles missing file (return error AgentResult) and malformed JSON (return error AgentResult with error message)",
+          "Write new tests in a new file tests/unit/test_runner.py for these three functions — at least 8 tests covering: report_result found, report_result missing (fallback), empty messages, malformed results file, valid results file round-trip"
+        ],
+        "acceptance": [
+          "extract_report_result with messages containing report_result tool call returns ReportResult",
+          "extract_report_result with no tool call returns None",
+          "extract_summary_fallback returns last 500 chars of last assistant text",
+          "_read_agent_results with valid results.json returns populated AgentResult",
+          "_read_agent_results with missing file returns error AgentResult",
+          "All new tests pass"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "task-8",
+        "title": "Runner: spawn_headless",
+        "goal": "Implement spawn_headless in wflib/runner.py. This is the core subprocess spawning function. It writes system_prompt to a temp file, calls profile.build_headless_cmd() to get the argv, spawns the subprocess, captures stdout/stderr, calls profile.parse_headless_output() on stdout to produce a results dict, writes results.json to the cwd, then reads it via _read_agent_results. Handles process failures (non-zero exit, timeout) gracefully.",
+        "files": [
+          "wflib/runner.py",
+          "profiles/__init__.py",
+          "docs/plans/wf-spec.md"
+        ],
+        "constraints": [
+          "Write system prompt to a NamedTemporaryFile, pass its path to build_headless_cmd",
+          "Use subprocess.run with capture_output=True, text=True, cwd=cwd, timeout as optional parameter",
+          "After subprocess completes, call profile.parse_headless_output(stdout) to get results dict",
+          "Write results dict as JSON to a results.json file in cwd (or a configurable path)",
+          "Use _read_agent_results to read back and return AgentResult",
+          "On subprocess timeout: return error AgentResult with timeout message",
+          "On any exception: return error AgentResult with the exception details",
+          "Clean up temp files in a finally block"
+        ],
+        "acceptance": [
+          "spawn_headless creates a temp file with system prompt content",
+          "spawn_headless calls profile.build_headless_cmd with correct arguments",
+          "spawn_headless returns AgentResult with data from results.json",
+          "spawn_headless handles subprocess failure gracefully"
+        ],
+        "dependsOn": [
+          "task-7"
+        ]
+      },
+      {
+        "id": "task-9",
+        "title": "Tmux module implementation",
+        "goal": "Implement all functions in wflib/tmux.py: is_tmux_available, get_current_window_id, select_window, reset_execution_window, get_or_create_execution_pane, pane_exists, wait_for_exit_code_file, shell_escape. These wrap tmux CLI commands and manage execution pane lifecycle.",
+        "files": [
+          "wflib/tmux.py",
+          "docs/plans/wf-spec.md",
+          "tests/integration/test_tmux.py"
+        ],
+        "constraints": [
+          "is_tmux_available checks: (1) tmux binary exists on PATH via shutil.which, (2) TMUX env var is set (we're inside a tmux session). Returns False if either check fails.",
+          "shell_escape uses shlex.quote",
+          "get_or_create_execution_pane creates panes in a dedicated execution window, reusing the window across calls within the same run (module-level state). Use tmux split-window and send-keys.",
+          "wait_for_exit_code_file polls with time.sleep(0.5) interval. Primary: check if exit_code_file exists. Fallback: if pane no longer exists (pane_exists returns False), write exit code 1 to the file and return.",
+          "pane_exists runs 'tmux display-message -t <pane_id> -p' and checks return code",
+          "reset_execution_window clears module-level execution window state",
+          "Unskip and implement tests in tests/integration/test_tmux.py: TestShellEscape (2 tests) can run anywhere. TestIsTmuxAvailable (1 test) should test the logic without requiring tmux. For pane management and exit-code polling tests (5 tests), skip if not inside tmux (check TMUX env var)."
+        ],
+        "acceptance": [
+          "shell_escape('hello world') returns a properly quoted string",
+          "shell_escape('') returns \"''\"",
+          "is_tmux_available() returns bool without error",
+          "All TestShellEscape and TestIsTmuxAvailable tests pass (unskipped)",
+          "Pane management tests pass when run inside tmux, skip gracefully otherwise"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "task-10",
+        "title": "Runner: spawn_in_tmux + profile protocol compliance tests",
+        "goal": "Implement spawn_in_tmux in wflib/runner.py. This writes prompt+system_prompt to temp files, calls profile.build_tmux_wrapper() to get the wrapper script, creates a tmux pane via tmux.get_or_create_execution_pane(), waits for the exit-code file via tmux.wait_for_exit_code_file(), then reads results via _read_agent_results. Also unskip and implement the 3 TestProfileProtocol tests that verify each profile implements the RunnerProfile protocol.",
+        "files": [
+          "wflib/runner.py",
+          "wflib/tmux.py",
+          "profiles/__init__.py",
+          "tests/unit/test_profiles.py",
+          "docs/plans/wf-spec.md"
+        ],
+        "constraints": [
+          "Write prompt to a temp file (for @prompt_file in tmux wrapper), system prompt to another temp file",
+          "Write the wrapper script to a temp file, make it executable (os.chmod 0o755)",
+          "Call get_or_create_execution_pane with the wrapper script path as the command",
+          "Call wait_for_exit_code_file to block until completion",
+          "Read results via _read_agent_results",
+          "Raise NotImplementedError if profile.supports_tmux is False",
+          "For TestProfileProtocol: verify each profile class has all required attributes and methods of RunnerProfile using hasattr or runtime_checkable Protocol",
+          "Unskip TestProfileProtocol tests (3 tests)"
+        ],
+        "acceptance": [
+          "spawn_in_tmux raises NotImplementedError when profile.supports_tmux is False",
+          "spawn_in_tmux writes wrapper script and returns AgentResult",
+          "TestProfileProtocol tests verify pi, claude-code, and mock all satisfy the protocol",
+          "All 3 TestProfileProtocol tests pass"
+        ],
+        "dependsOn": [
+          "task-8",
+          "task-9"
+        ]
+      },
+      {
+        "id": "task-11",
+        "title": "Profile integration tests with recorded output + final verification",
+        "goal": "Unskip and implement the remaining profile integration tests that feed recorded output through profile adapters (TestPiRecordedOutput in test_pi_profile.py and TestClaudeCodeRecordedOutput in test_claude_code_profile.py). These tests create synthetic but realistic recorded outputs, parse them through the profile's parse methods, and verify the results dict. Run the full test suite to verify all Phase 3 tests pass.",
+        "files": [
+          "tests/profile/test_pi_profile.py",
+          "tests/profile/test_claude_code_profile.py",
+          "tests/unit/test_profiles.py",
+          "adapters/pi_json_mode.py",
+          "adapters/pi_session.py",
+          "adapters/claude_stream_json.py"
+        ],
+        "constraints": [
+          "TestPiRecordedOutput.test_parse_headless_json_mode: create a multi-line NDJSON fixture with message_end + agent_end events, pass through PiProfile().parse_headless_output(), verify messages/usage/model",
+          "TestPiRecordedOutput.test_parse_session_output: create a temp directory with a .jsonl fixture, pass through PiProfile().parse_session_output(), verify messages/usage",
+          "TestClaudeCodeRecordedOutput.test_parse_stream_json_output: create a stream-json NDJSON fixture, pass through ClaudeCodeProfile().parse_headless_output(), verify messages/usage/model",
+          "Unskip all 3 tests",
+          "After implementation, run `python3 -m pytest tests/ --tb=short` and verify: all Phase 0-2 tests still pass, all Phase 3 tests pass, only Phase 4+ tests remain skipped"
+        ],
+        "acceptance": [
+          "TestPiRecordedOutput (2 tests) pass",
+          "TestClaudeCodeRecordedOutput (1 test) passes",
+          "Full test suite: 0 failures, Phase 3 skips eliminated (only Phase 4+ skips remain)",
+          "python3 -m pytest tests/ shows ~350+ passed, ~70-80 skipped (down from 133)"
+        ],
+        "dependsOn": [
+          "task-2",
+          "task-3",
+          "task-4",
+          "task-5",
+          "task-6"
+        ]
+      }
+    ]
+  },
+  "planId": "2eb1",
+  "statuses": {
+    "task-1": "pending",
+    "task-2": "pending",
+    "task-3": "pending",
+    "task-4": "pending",
+    "task-5": "pending",
+    "task-6": "pending",
+    "task-7": "pending",
+    "task-8": "pending",
+    "task-9": "pending",
+    "task-10": "pending",
+    "task-11": "pending"
+  },
+  "results": {},
+  "planningUsage": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "cost": 0,
+    "turns": 0
+  },
+  "planningModel": "nvinf-anthropic/aws/anthropic/bedrock-claude-opus-4-6",
+  "planFile": "docs/plans/2eb1-implement-phase.md"
+}
