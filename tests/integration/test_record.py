@@ -1,6 +1,8 @@
 """Tests for wflib.record — create, load, save, atomic writes, phase transitions."""
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from wflib.record import (
     clear_active_resource,
@@ -21,46 +23,95 @@ from wflib.record import (
     record_task_start,
     save_record,
 )
+from wflib.types import (
+    BrainstormRecord,
+    ImplementationRecord,
+    PlanRecord,
+    ReviewRecord,
+    Task,
+    TaskResult,
+    TaskStatus,
+    Usage,
+    WorkflowConfig,
+    WorkflowMeta,
+    WorkflowRecord,
+    WorkflowStatus,
+)
 
 
 class TestCreateRecord(unittest.TestCase):
-    @unittest.skip("Phase 2")
     def test_creates_file(self):
         """create_record writes docs/workflows/<name>.json."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            record = create_record("demo", tmpdir, "main", "abc123")
+            path = Path(tmpdir) / "docs" / "workflows" / "demo.json"
+            self.assertTrue(path.is_file())
+            self.assertEqual(record.workflow.name, "demo")
 
-    @unittest.skip("Phase 2")
     def test_generates_workflow_id(self):
         """Created record has a non-empty workflow ID."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            record = create_record("demo", tmpdir, "main", "abc123")
+            workflow_id = record.workflow.id
+            self.assertEqual(len(workflow_id), 4)
+            int(workflow_id, 16)
 
-    @unittest.skip("Phase 2")
     def test_initial_status_is_init(self):
         """Created record has status 'init'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            record = create_record("demo", tmpdir, "main", "abc123")
+            self.assertEqual(record.workflow.status, WorkflowStatus.INIT)
 
-    @unittest.skip("Phase 2")
     def test_raises_on_duplicate_name(self):
         """Raises if a record with the same name already exists."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            create_record("demo", tmpdir, "main", "abc123")
+            with self.assertRaises(FileExistsError):
+                create_record("demo", tmpdir, "main", "abc123")
 
-    @unittest.skip("Phase 2")
     def test_includes_config_snapshot(self):
         """Created record includes the provided WorkflowConfig."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = WorkflowConfig()
+            config.agent.profile = "mock"
+            record = create_record("demo", tmpdir, "main", "abc123", config=config)
+            self.assertEqual(record.workflow.config, config)
 
 
 class TestLoadSaveRecord(unittest.TestCase):
-    @unittest.skip("Phase 2")
     def test_round_trip(self):
         """save_record then load_record produces equivalent record."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            record = create_record("demo", tmpdir, "main", "abc123")
+            record.workflow.status = WorkflowStatus.PLANNING
+            save_record(record, tmpdir)
+            loaded = load_record("demo", tmpdir)
+            self.assertEqual(record, loaded)
 
-    @unittest.skip("Phase 2")
     def test_atomic_write(self):
         """save_record uses atomic write (tmp + rename)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            record = create_record("demo", tmpdir, "main", "abc123")
+            save_record(record, tmpdir)
+            workflows_dir = Path(tmpdir) / "docs" / "workflows"
+            files = sorted(p.name for p in workflows_dir.iterdir())
+            self.assertEqual(files, ["demo.json"])
 
-    @unittest.skip("Phase 2")
     def test_load_missing_raises(self):
         """load_record raises FileNotFoundError for missing file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(FileNotFoundError):
+                load_record("missing", tmpdir)
 
-    @unittest.skip("Phase 2")
     def test_load_malformed_raises(self):
         """load_record raises ValueError for invalid JSON."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workflows_dir = Path(tmpdir) / "docs" / "workflows"
+            workflows_dir.mkdir(parents=True)
+            bad_path = workflows_dir / "bad.json"
+            bad_path.write_text("{not-json", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_record("bad", tmpdir)
 
 
 class TestPhaseTransitions(unittest.TestCase):
@@ -110,17 +161,125 @@ class TestEvents(unittest.TestCase):
 
 
 class TestQueryHelpers(unittest.TestCase):
-    @unittest.skip("Phase 2")
     def test_get_plan_returns_plan(self):
         """get_plan extracts Plan from record with a plan phase."""
+        task = Task(
+            id="task-1",
+            title="First task",
+            goal="Do work",
+            files=["file.py"],
+            constraints=["Keep it simple"],
+            acceptance=["Tests pass"],
+            depends_on=[],
+        )
+        plan_record = PlanRecord(
+            recorded_at="2025-01-01T00:00:00Z",
+            goal="Build feature",
+            context="Context",
+            default_model="gpt-4",
+            tasks=[task],
+            usage=Usage(input=1, output=2, cache_read=3, cache_write=4, cost=0.1, turns=1),
+        )
+        record = WorkflowRecord(
+            workflow=WorkflowMeta(
+                id="a1b2",
+                name="demo",
+                created_at="2025-01-01T00:00:00Z",
+                status=WorkflowStatus.PLANNING,
+                project="/tmp/demo",
+                source_branch="main",
+                source_commit="abc123",
+                worktree=None,
+                config=WorkflowConfig(),
+            ),
+            plan=plan_record,
+        )
+        plan = get_plan(record)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan.goal, plan_record.goal)
+        self.assertEqual(plan.context, plan_record.context)
+        self.assertEqual(plan.tasks, plan_record.tasks)
+        self.assertEqual(plan.default_model, plan_record.default_model)
 
-    @unittest.skip("Phase 2")
     def test_get_plan_returns_none(self):
         """get_plan returns None when no plan recorded."""
+        record = WorkflowRecord(
+            workflow=WorkflowMeta(
+                id="a1b2",
+                name="demo",
+                created_at="2025-01-01T00:00:00Z",
+                status=WorkflowStatus.INIT,
+                project="/tmp/demo",
+                source_branch="main",
+                source_commit="abc123",
+                worktree=None,
+                config=WorkflowConfig(),
+            )
+        )
+        self.assertIsNone(get_plan(record))
 
-    @unittest.skip("Phase 2")
     def test_get_total_usage_aggregates(self):
         """get_total_usage sums across all phases."""
+        brainstorm_usage = Usage(input=1, output=2, cache_read=3, cache_write=4, cost=0.5, turns=1)
+        plan_usage = Usage(input=10, output=20, cache_read=30, cache_write=40, cost=1.5, turns=2)
+        task_usage_1 = Usage(input=100, output=200, cache_read=0, cache_write=0, cost=2.0, turns=3)
+        task_usage_2 = Usage(input=300, output=400, cache_read=5, cache_write=6, cost=3.0, turns=4)
+        review_usage = Usage(input=7, output=8, cache_read=9, cache_write=10, cost=0.2, turns=1)
+
+        record = WorkflowRecord(
+            workflow=WorkflowMeta(
+                id="a1b2",
+                name="demo",
+                created_at="2025-01-01T00:00:00Z",
+                status=WorkflowStatus.REVIEWING,
+                project="/tmp/demo",
+                source_branch="main",
+                source_commit="abc123",
+                worktree=None,
+                config=WorkflowConfig(),
+            ),
+            brainstorm=BrainstormRecord(
+                recorded_at="2025-01-01T00:00:00Z",
+                motivation="Motivation",
+                solution="Solution",
+                design_decisions=[],
+                usage=brainstorm_usage,
+            ),
+            plan=PlanRecord(
+                recorded_at="2025-01-01T00:10:00Z",
+                goal="Goal",
+                context="Context",
+                default_model=None,
+                tasks=[],
+                usage=plan_usage,
+            ),
+            implementation=ImplementationRecord(
+                tasks={
+                    "task-1": TaskResult(status=TaskStatus.DONE, usage=task_usage_1),
+                    "task-2": TaskResult(status=TaskStatus.DONE, usage=task_usage_2),
+                }
+            ),
+            reviews=[
+                ReviewRecord(
+                    recorded_at="2025-01-01T01:00:00Z",
+                    base_commit="abc123",
+                    review_text="Looks good",
+                    findings_actionable=False,
+                    usage=review_usage,
+                )
+            ],
+        )
+
+        total = get_total_usage(record)
+        expected = Usage(
+            input=418,
+            output=630,
+            cache_read=47,
+            cache_write=60,
+            cost=7.2,
+            turns=11,
+        )
+        self.assertEqual(total, expected)
 
 
 if __name__ == "__main__":

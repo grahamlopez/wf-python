@@ -5,6 +5,13 @@ Every phase reads and writes through this module.
 
 from __future__ import annotations
 
+import json
+import os
+import secrets
+import sys
+import tempfile
+from datetime import datetime, timezone
+
 from wflib.types import (
     DesignDecision,
     ImplementationRecord,
@@ -13,7 +20,11 @@ from wflib.types import (
     TaskResult,
     Usage,
     WorkflowConfig,
+    WorkflowMeta,
     WorkflowRecord,
+    WorkflowStatus,
+    record_from_json,
+    record_to_json,
 )
 
 WORKFLOWS_DIR = "docs/workflows"
@@ -21,12 +32,14 @@ WORKFLOWS_DIR = "docs/workflows"
 
 def record_path(name: str, cwd: str) -> str:
     """Absolute path to docs/workflows/<name>.json."""
-    raise NotImplementedError("record_path: not yet implemented")
+    return os.path.join(os.path.abspath(cwd), WORKFLOWS_DIR, f"{name}.json")
 
 
 def ensure_workflows_dir(cwd: str) -> str:
     """Create docs/workflows/ if needed. Returns absolute path."""
-    raise NotImplementedError("ensure_workflows_dir: not yet implemented")
+    path = os.path.join(os.path.abspath(cwd), WORKFLOWS_DIR)
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 # --- CRUD ---
@@ -42,24 +55,90 @@ def create_record(
     """Create a new record file. Generates workflow ID.
     Writes to docs/workflows/<name>.json. Raises if name already exists.
     """
-    raise NotImplementedError("create_record: not yet implemented")
+    ensure_workflows_dir(cwd)
+    path = record_path(name, cwd)
+    if os.path.exists(path):
+        raise FileExistsError(f"Record '{name}' already exists")
+
+    workflow_id = secrets.token_hex(2)
+    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    meta = WorkflowMeta(
+        id=workflow_id,
+        name=name,
+        created_at=created_at,
+        status=WorkflowStatus.INIT,
+        project=os.path.abspath(cwd),
+        source_branch=source_branch,
+        source_commit=source_commit,
+        worktree=worktree,
+        config=config or WorkflowConfig(),
+    )
+    record = WorkflowRecord(workflow=meta)
+
+    save_record(record, cwd)
+    return record
 
 
 def load_record(name: str, cwd: str) -> WorkflowRecord:
     """Load a record from disk. Raises FileNotFoundError if missing, ValueError if malformed."""
-    raise NotImplementedError("load_record: not yet implemented")
+    path = record_path(name, cwd)
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Malformed record JSON: {path}") from exc
+
+    try:
+        return record_from_json(data)
+    except ValueError as exc:
+        raise ValueError(f"Malformed record data: {path}") from exc
 
 
 def save_record(record: WorkflowRecord, cwd: str) -> None:
     """Write record to disk. Atomic write (write tmp + rename)."""
-    raise NotImplementedError("save_record: not yet implemented")
+    workflows_dir = ensure_workflows_dir(cwd)
+    path = record_path(record.workflow.name, cwd)
+    payload = record_to_json(record)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        delete=False,
+        dir=workflows_dir,
+    ) as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        temp_name = handle.name
+
+    os.replace(temp_name, path)
 
 
 def list_records(cwd: str) -> list[WorkflowRecord]:
     """Scan docs/workflows/ for all record files. Returns loaded records.
     Skips malformed files with a warning.
     """
-    raise NotImplementedError("list_records: not yet implemented")
+    workflows_dir = os.path.join(os.path.abspath(cwd), WORKFLOWS_DIR)
+    if not os.path.isdir(workflows_dir):
+        return []
+
+    records: list[WorkflowRecord] = []
+    for filename in sorted(os.listdir(workflows_dir)):
+        if not filename.endswith(".json"):
+            continue
+        path = os.path.join(workflows_dir, filename)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            records.append(record_from_json(data))
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            sys.stderr.write(f"Warning: failed to load record '{path}': {exc}\n")
+            continue
+
+    return records
 
 
 # --- Phase transitions ---
@@ -151,14 +230,46 @@ def record_close(
 
 def get_plan(record: WorkflowRecord) -> Plan | None:
     """Extract a Plan object from the record's plan phase."""
-    raise NotImplementedError("get_plan: not yet implemented")
+    if record.plan is None:
+        return None
+    plan = record.plan
+    return Plan(
+        goal=plan.goal,
+        context=plan.context,
+        tasks=plan.tasks,
+        default_model=plan.default_model,
+    )
 
 
 def get_implementation_state(record: WorkflowRecord) -> dict[str, TaskResult]:
     """Get current task statuses/results from the implementation phase."""
-    raise NotImplementedError("get_implementation_state: not yet implemented")
+    if record.implementation is None:
+        return {}
+    return record.implementation.tasks
 
 
 def get_total_usage(record: WorkflowRecord) -> Usage:
     """Aggregate usage across all phases."""
-    raise NotImplementedError("get_total_usage: not yet implemented")
+    total = Usage()
+
+    def add_usage(usage: Usage | None) -> None:
+        if usage is None:
+            return
+        total.input += usage.input
+        total.output += usage.output
+        total.cache_read += usage.cache_read
+        total.cache_write += usage.cache_write
+        total.cost += usage.cost
+        total.turns += usage.turns
+
+    if record.brainstorm is not None:
+        add_usage(record.brainstorm.usage)
+    if record.plan is not None:
+        add_usage(record.plan.usage)
+    if record.implementation is not None:
+        for result in record.implementation.tasks.values():
+            add_usage(result.usage)
+    for review in record.reviews:
+        add_usage(review.usage)
+
+    return total
