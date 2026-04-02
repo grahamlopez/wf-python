@@ -11,6 +11,7 @@ import asyncio
 
 from wflib.types import Plan, Task, TaskResult, WorkflowConfig, WorkflowRecord
 from wflib.worktree import MergeResult, WorktreeInfo
+from profiles import RunnerProfile
 
 
 async def run_task(
@@ -49,7 +50,7 @@ async def _merge_and_cleanup(
     task: Task,
     record: WorkflowRecord,
     merge_lock: asyncio.Lock,
-    profile: 'RunnerProfile',
+    profile: RunnerProfile,
     model: str | None,
     config: WorkflowConfig,
 ) -> MergeResult:

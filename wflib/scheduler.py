@@ -10,7 +10,8 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Callable
 
-from wflib.types import Plan, Task, TaskResult, TaskStatus, WorkflowConfig, WorkflowRecord
+from wflib.types import Plan, ReviewRecord, Task, TaskResult, TaskStatus, WorkflowConfig, WorkflowRecord
+# Cross-module import is spec-intentional — ExecutionSummary requires UsageRow per spec
 from wflib.render import UsageRow
 
 Callback = Callable | None
@@ -47,7 +48,7 @@ async def execute_single_task(
 
 
 async def execute_fixup(
-    review: 'ReviewRecord',
+    review: ReviewRecord,
     record: WorkflowRecord,
     cwd: str,
     cli_overrides: dict | None = None,

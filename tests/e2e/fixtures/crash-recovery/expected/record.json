@@ -1,4 +1,5 @@
 {
+  "_comment": "Models a crash where ALL tasks were running (none had completed), so all reset to pending",
   "implementation": {
     "activeResources": {},
     "tasks": {

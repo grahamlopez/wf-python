@@ -110,5 +110,8 @@ def show_with_origins(
 def set_config_value(path: str, key: str, value: str, scope: str = "user") -> None:
     """Set a value in a config file. scope is 'user' or 'project'.
     Creates the file if it doesn't exist.
+
+    `path` is the project root directory (used to locate .wf/config.toml for
+    project scope), not a dotted config path or file path.
     """
     raise NotImplementedError("set_config_value: not yet implemented")

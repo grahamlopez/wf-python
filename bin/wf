@@ -326,8 +326,9 @@ def main():
     args = parser.parse_args()
 
     if args.command is None:
-        # wf with no arguments — alias for wf help topics
-        _not_implemented(args)
+        # wf with no arguments should show help topics
+        print(json.dumps({"error": "not implemented: wf with no arguments should show help topics"}))
+        sys.exit(1)
 
     args.func(args)
 

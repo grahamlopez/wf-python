@@ -20,7 +20,9 @@ for entry in scenario["tasks"]:
         # Execute scripted file operations in cwd
         for op in entry.get("operations", []):
             if op["type"] == "write":
-                os.makedirs(os.path.dirname(op["path"]), exist_ok=True)
+                parent = os.path.dirname(op["path"])
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
                 with open(op["path"], "w") as f:
                     f.write(op["content"])
             elif op["type"] == "delete":

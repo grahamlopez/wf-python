@@ -117,7 +117,7 @@ class BrainstormRecord:
 @dataclass
 class ImplementationEvent:
     t: str                                     # ISO timestamp
-    event: str                                 # Closed enum for v1
+    event: str                                 # Validated via schema enum — see ImplementationEvent in workflow.schema.json
     task: str | None = None
     detail: str | None = None                  # extra context
 
