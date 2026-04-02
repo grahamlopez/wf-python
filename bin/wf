@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""wf - structured AI development workflows.
+
+Usage:
+    wf init <name> [options]
+    wf run <workflow> [options]
+    wf brainstorm <workflow> [options]
+    wf plan <workflow> [options]
+    wf record-brainstorm <workflow> [--cwd DIR]
+    wf submit-plan <workflow> [--cwd DIR]
+    wf execute <workflow> [options]
+    wf execute-task <workflow> <task-id> [options]
+    wf review <workflow> [options]
+    wf auto-review <workflow> [options]
+    wf close <workflow> [options]
+    wf status <workflow> [--cwd DIR]
+    wf list [--cwd DIR]
+    wf history [--json] [--limit N] [--cwd DIR]
+    wf render <workflow> [--cwd DIR]
+    wf validate <file>
+    wf brief <workflow> <task-id> [--cwd DIR]
+    wf recover <workflow> [--cwd DIR]
+    wf schema [--component NAME]
+    wf config [list|get|set] [options]
+    wf template list [--cwd DIR]
+    wf template show <name> [--cwd DIR]
+    wf template render <name> [args...] [--cwd DIR]
+    wf completions <shell>
+    wf help [topic]
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+# Add repo root to sys.path so wflib, profiles, adapters are importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
+def _not_implemented(args):
+    """Default handler for all subcommands — prints error JSON and exits 1."""
+    print(json.dumps({"error": "not implemented"}))
+    sys.exit(1)
+
+
+def build_parser():
+    """Build the complete argparse parser with all subcommands and flags."""
+    parser = argparse.ArgumentParser(
+        prog="wf",
+        description="wf - structured AI development workflows",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    # --- wf init <name> ---
+    p_init = subparsers.add_parser("init", help="Initialize a new workflow")
+    p_init.add_argument("name", help="Workflow name")
+    p_init.add_argument("--cwd", default=".", help="Project directory (default: .)")
+    p_init.add_argument("--no-worktree", action="store_true",
+                        help="Work directly in the main repo")
+    p_init.add_argument("--set", action="append", dest="set_overrides", metavar="KEY=VALUE",
+                        help="Override config for this workflow (repeatable)")
+    p_init.set_defaults(func=_not_implemented)
+
+    # --- wf run <workflow> ---
+    p_run = subparsers.add_parser("run", help="Run the full workflow lifecycle")
+    p_run.add_argument("workflow", help="Workflow name")
+    p_run.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_run.add_argument("--model", help="Override model for all phases (ephemeral)")
+    p_run.add_argument("--prompt", help="Initial problem description")
+    p_run.add_argument("--concurrency", type=int, metavar="N",
+                       help="Override max parallel tasks (ephemeral)")
+    p_run.add_argument("--no-worktrees", action="store_true",
+                       help="Override worktree isolation (ephemeral)")
+    p_run.add_argument("--no-tmux", action="store_true",
+                       help="Override tmux usage (ephemeral)")
+    p_run.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
+                       help="Override auto-close delay (ephemeral)")
+    p_run.add_argument("--auto-review", action="store_true",
+                       help="Override auto-review setting (ephemeral)")
+    p_run.set_defaults(func=_not_implemented)
+
+    # --- wf brainstorm <workflow> ---
+    p_brainstorm = subparsers.add_parser("brainstorm", help="Run brainstorm phase")
+    p_brainstorm.add_argument("workflow", help="Workflow name")
+    p_brainstorm.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_brainstorm.add_argument("--model", help="Override model for brainstorm (ephemeral)")
+    p_brainstorm.add_argument("--prompt", help="Initial message / problem description")
+    p_brainstorm.add_argument("--no-tmux", action="store_true",
+                              help="Override tmux usage (ephemeral)")
+    p_brainstorm.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
+                              help="Override auto-close delay (ephemeral)")
+    p_brainstorm.set_defaults(func=_not_implemented)
+
+    # --- wf plan <workflow> ---
+    p_plan = subparsers.add_parser("plan", help="Run planning phase")
+    p_plan.add_argument("workflow", help="Workflow name")
+    p_plan.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_plan.add_argument("--model", help="Override model for planning (ephemeral)")
+    p_plan.add_argument("--prompt", help="Additional guidance")
+    p_plan.add_argument("--no-tmux", action="store_true",
+                        help="Override tmux usage (ephemeral)")
+    p_plan.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
+                        help="Override auto-close delay (ephemeral)")
+    p_plan.set_defaults(func=_not_implemented)
+
+    # --- wf record-brainstorm <workflow> ---
+    p_record_brainstorm = subparsers.add_parser("record-brainstorm",
+                                                 help="Record brainstorm conclusions")
+    p_record_brainstorm.add_argument("workflow", help="Workflow name")
+    p_record_brainstorm.add_argument("--cwd", default=".",
+                                     help="Project directory (default: .)")
+    p_record_brainstorm.add_argument("--usage", help="Usage data JSON from calling session")
+    p_record_brainstorm.set_defaults(func=_not_implemented)
+
+    # --- wf submit-plan <workflow> ---
+    p_submit_plan = subparsers.add_parser("submit-plan",
+                                          help="Submit an implementation plan")
+    p_submit_plan.add_argument("workflow", help="Workflow name")
+    p_submit_plan.add_argument("--cwd", default=".", help="Project directory (default: .)")
+    p_submit_plan.add_argument("--usage", help="Usage data JSON from calling session")
+    p_submit_plan.set_defaults(func=_not_implemented)
+
+    # --- wf execute <workflow> ---
+    p_execute = subparsers.add_parser("execute", help="Execute all pending tasks")
+    p_execute.add_argument("workflow", help="Workflow name")
+    p_execute.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_execute.add_argument("--profile", metavar="NAME",
+                           help="Override runner profile (ephemeral)")
+    p_execute.add_argument("--model", help="Override model for all tasks (ephemeral)")
+    p_execute.add_argument("--concurrency", type=int, metavar="N",
+                           help="Override max parallel tasks (ephemeral)")
+    p_execute.add_argument("--no-worktrees", action="store_true",
+                           help="Override worktree isolation (ephemeral)")
+    p_execute.add_argument("--no-tmux", action="store_true",
+                           help="Override tmux usage (ephemeral)")
+    p_execute.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
+                           help="Override auto-close delay (ephemeral)")
+    p_execute.add_argument("--auto-review", action="store_true",
+                           help="Override auto-review setting (ephemeral)")
+    p_execute.add_argument("--review-model", metavar="MODEL",
+                           help="Override model for review subagent (ephemeral)")
+    p_execute.set_defaults(func=_not_implemented)
+
+    # --- wf execute-task <workflow> <task-id> ---
+    p_execute_task = subparsers.add_parser("execute-task",
+                                           help="Execute or re-run a single task")
+    p_execute_task.add_argument("workflow", help="Workflow name")
+    p_execute_task.add_argument("task_id", metavar="task-id", help="Task ID")
+    p_execute_task.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_execute_task.add_argument("--model", help="Override model for this task (ephemeral)")
+    p_execute_task.add_argument("--no-tmux", action="store_true",
+                                help="Override tmux usage (ephemeral)")
+    p_execute_task.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
+                                help="Override auto-close delay (ephemeral)")
+    p_execute_task.set_defaults(func=_not_implemented)
+
+    # --- wf review <workflow> ---
+    p_review = subparsers.add_parser("review", help="Run code review")
+    p_review.add_argument("workflow", help="Workflow name")
+    p_review.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_review.add_argument("--model", help="Override model for review (ephemeral)")
+    p_review.add_argument("--ref", metavar="COMMIT",
+                          help="Base commit to diff against")
+    p_review.add_argument("--desc", metavar="DESCRIPTION",
+                          help="Description of work being reviewed")
+    p_review.add_argument("--scope", metavar="FILES", help="Focus scope")
+    p_review.add_argument("--no-tmux", action="store_true",
+                          help="Override tmux usage (ephemeral)")
+    p_review.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
+                          help="Override auto-close delay (ephemeral)")
+    p_review.set_defaults(func=_not_implemented)
+
+    # --- wf auto-review <workflow> ---
+    p_auto_review = subparsers.add_parser("auto-review",
+                                          help="Code review with fixup plan")
+    p_auto_review.add_argument("workflow", help="Workflow name")
+    p_auto_review.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_auto_review.add_argument("--model", help="Override model for review (ephemeral)")
+    p_auto_review.add_argument("--ref", metavar="COMMIT",
+                               help="Base commit to diff against")
+    p_auto_review.add_argument("--no-tmux", action="store_true",
+                               help="Override tmux usage (ephemeral)")
+    p_auto_review.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
+                               help="Override auto-close delay (ephemeral)")
+    p_auto_review.add_argument("--fixup-model", metavar="MODEL",
+                               help="Override model for fixup tasks (ephemeral)")
+    p_auto_review.add_argument("--fixup-concurrency", type=int, metavar="N",
+                               help="Override max parallel fixup tasks (ephemeral)")
+    p_auto_review.set_defaults(func=_not_implemented)
+
+    # --- wf close <workflow> ---
+    p_close = subparsers.add_parser("close", help="Close the workflow")
+    p_close.add_argument("workflow", help="Workflow name")
+    p_close.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_close.add_argument("--model",
+                         help="Override model for conflict resolution (ephemeral)")
+    p_close.set_defaults(func=_not_implemented)
+
+    # --- wf status <workflow> ---
+    p_status = subparsers.add_parser("status", help="Show workflow status")
+    p_status.add_argument("workflow", help="Workflow name")
+    p_status.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_status.add_argument("--json", action="store_true",
+                          help="Output raw record JSON")
+    p_status.set_defaults(func=_not_implemented)
+
+    # --- wf list ---
+    p_list = subparsers.add_parser("list", help="List workflows")
+    p_list.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_list.add_argument("--all", action="store_true",
+                        help="Include completed/failed workflows")
+    p_list.add_argument("--json", action="store_true", help="Output raw JSON array")
+    p_list.set_defaults(func=_not_implemented)
+
+    # --- wf history ---
+    p_history = subparsers.add_parser("history", help="Show workflow history")
+    p_history.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_history.add_argument("--json", action="store_true",
+                           help="Output raw JSON array")
+    p_history.add_argument("--limit", type=int, metavar="N", default=20,
+                           help="Max entries (default: 20)")
+    p_history.set_defaults(func=_not_implemented)
+
+    # --- wf render <workflow> ---
+    p_render = subparsers.add_parser("render", help="Render workflow as markdown")
+    p_render.add_argument("workflow", help="Workflow name")
+    p_render.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_render.set_defaults(func=_not_implemented)
+
+    # --- wf validate <file> ---
+    p_validate = subparsers.add_parser("validate", help="Validate a plan JSON file")
+    p_validate.add_argument("file", help="Path to plan JSON file")
+    p_validate.set_defaults(func=_not_implemented)
+
+    # --- wf brief <workflow> <task-id> ---
+    p_brief = subparsers.add_parser("brief", help="Generate a task brief")
+    p_brief.add_argument("workflow", help="Workflow name")
+    p_brief.add_argument("task_id", metavar="task-id", help="Task ID")
+    p_brief.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_brief.set_defaults(func=_not_implemented)
+
+    # --- wf recover <workflow> ---
+    p_recover = subparsers.add_parser("recover", help="Clean up after a crash")
+    p_recover.add_argument("workflow", help="Workflow name")
+    p_recover.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_recover.set_defaults(func=_not_implemented)
+
+    # --- wf schema ---
+    p_schema = subparsers.add_parser("schema", help="Output JSON Schema")
+    p_schema.add_argument("--component", metavar="NAME",
+                          help="Output just a specific $def component")
+    p_schema.set_defaults(func=_not_implemented)
+
+    # --- wf config ---
+    p_config = subparsers.add_parser("config", help="Manage configuration")
+    config_subparsers = p_config.add_subparsers(dest="config_command")
+
+    p_config_list = config_subparsers.add_parser("list", help="Show resolved configuration")
+    p_config_list.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_config_list.add_argument("--show-origin", action="store_true",
+                               help="Annotate each value with its source level")
+    p_config_list.set_defaults(func=_not_implemented)
+
+    p_config_get = config_subparsers.add_parser("get", help="Show a single config value")
+    p_config_get.add_argument("key", help="Dotted config key (e.g. model.plan)")
+    p_config_get.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_config_get.set_defaults(func=_not_implemented)
+
+    p_config_set = config_subparsers.add_parser("set", help="Set a config value")
+    p_config_set.add_argument("assignment", metavar="KEY=VALUE",
+                              help="Config key=value to set")
+    p_config_set.add_argument("--cwd", default=".", help="Working directory (default: .)")
+    p_config_set.add_argument("--user", action="store_true",
+                              help="Write to ~/.config/wf/config.toml (default)")
+    p_config_set.add_argument("--project", action="store_true",
+                              help="Write to .wf/config.toml")
+    p_config_set.set_defaults(func=_not_implemented)
+
+    p_config.set_defaults(func=_not_implemented)
+
+    # --- wf template ---
+    p_template = subparsers.add_parser("template", help="Manage templates")
+    template_subparsers = p_template.add_subparsers(dest="template_command")
+
+    p_template_list = template_subparsers.add_parser("list",
+                                                      help="List available templates")
+    p_template_list.add_argument("--cwd", default=".",
+                                 help="Working directory (default: .)")
+    p_template_list.set_defaults(func=_not_implemented)
+
+    p_template_show = template_subparsers.add_parser("show",
+                                                      help="Show a template")
+    p_template_show.add_argument("name", help="Template name")
+    p_template_show.add_argument("--cwd", default=".",
+                                 help="Working directory (default: .)")
+    p_template_show.set_defaults(func=_not_implemented)
+
+    p_template_render = template_subparsers.add_parser("render",
+                                                        help="Render a template")
+    p_template_render.add_argument("name", help="Template name")
+    p_template_render.add_argument("args", nargs="*", help="Template arguments")
+    p_template_render.add_argument("--cwd", default=".",
+                                   help="Working directory (default: .)")
+    p_template_render.set_defaults(func=_not_implemented)
+
+    p_template.set_defaults(func=_not_implemented)
+
+    # --- wf completions <shell> ---
+    p_completions = subparsers.add_parser("completions",
+                                          help="Generate shell completion script")
+    p_completions.add_argument("shell", choices=["bash", "zsh", "fish"],
+                               help="Shell type")
+    p_completions.set_defaults(func=_not_implemented)
+
+    # --- wf help [topic] ---
+    p_help = subparsers.add_parser("help", help="Show help reference")
+    p_help.add_argument("topic", nargs="?", help="Help topic (optional)")
+    p_help.set_defaults(func=_not_implemented)
+
+    return parser
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.command is None:
+        # wf with no arguments — alias for wf help topics
+        _not_implemented(args)
+
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
