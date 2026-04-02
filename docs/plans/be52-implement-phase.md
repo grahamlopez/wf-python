@@ -1,0 +1,189 @@
+# Implement Phase 2 — Git/IO Layer: git.py, worktree.py, record.py, log.py with full integration tests
+
+## Context
+
+This is the `wf` project — a CLI tool for structured AI development workflows. Phase 0 (scaffold) and Phase 1 (pure foundation) are complete. All types, serialization, config, validation, brief, render, and templates modules are fully implemented with 232 passing tests. Phase 2 implements the git/filesystem/IO layer that all subsequent phases depend on.
+
+**Codebase layout:** `wflib/` (core library), `profiles/` (runner profiles — stubs), `adapters/` (output parsers — stubs), `tests/` (unit/integration/e2e/profile/adapter). All Phase 2 target modules exist as stubs with function signatures and `NotImplementedError` bodies. Integration test skeletons exist in `tests/integration/` with empty test bodies decorated `@unittest.skip("Phase 2")`.
+
+**Key dependencies already working:** `wflib/types.py` provides all dataclasses (WorkflowRecord, WorkflowMeta, TaskResult, Usage, Plan, ImplementationRecord, ReviewRecord, etc.) with full `record_from_json`/`record_to_json`/`plan_from_json` serialization. `wflib/config.py` provides WorkflowConfig resolution. These are the data structures that `record.py` and `worktree.py` will manipulate.
+
+**Testing pattern:** Phase 2 uses TDD with `tmp_path` fixtures — real git repos in temp directories. Tests use `unittest.TestCase` (for stdlib compatibility) but run via pytest. Each task must replace the `@unittest.skip("Phase 2")` decorators with real test bodies and make them pass. The `tests/integration/test_tmux.py` file is Phase 3 scope — do not touch it.
+
+**Spec reference:** The full spec lives at `docs/plans/wf-spec.md`. The implementation tracker is at `docs/plans/implementation-tracker.md`.
+
+## Tasks (7)
+
+### task-1: Implement git.py — thin git wrapper
+
+**Goal:** Replace all NotImplementedError stubs in wflib/git.py with working implementations and write the integration tests in tests/integration/test_git.py.
+
+**Files:**
+- `wflib/git.py`
+- `tests/integration/test_git.py`
+- `docs/plans/wf-spec.md`
+
+**Constraints:**
+- Use subprocess.run with capture_output=True, text=True for all git commands
+- git() must accept a timeout parameter (default 60s) and pass it to subprocess.run
+- GitResult.ok is True when returncode == 0
+- get_head_full returns None when the repo has no commits (empty repo)
+- get_current_branch uses `git rev-parse --abbrev-ref HEAD`
+- is_clean uses `git status --porcelain` and checks for empty output
+- get_dirty_files uses `git status --porcelain` and extracts filenames from the output
+
+**Acceptance Criteria:**
+- All tests in tests/integration/test_git.py pass (no skips remaining)
+- python3 -m pytest tests/integration/test_git.py runs clean
+- All existing tests still pass (python3 -m pytest tests/unit/)
+
+**Depends on:** none
+
+### task-2: Implement log.py — debug logging
+
+**Goal:** Replace the NotImplementedError stubs in wflib/log.py with working implementations. This is a small utility module with 2 functions.
+
+**Files:**
+- `wflib/log.py`
+- `docs/plans/wf-spec.md`
+
+**Constraints:**
+- log() appends a JSON line to ~/.wf/debug.log with a timestamp, the event name, and any **data kwargs
+- log() must be non-fatal — catch all exceptions and silently discard them (never crash the caller)
+- log() creates the ~/.wf/ directory if it doesn't exist (os.makedirs with exist_ok=True)
+- status_snap() returns a compact string like 'task-1:done task-2:running task-3:pending' — join task statuses sorted by task ID
+- Use json.dumps for the log line, include an 'at' key with ISO timestamp from datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+**Acceptance Criteria:**
+- python3 -c "from wflib.log import log, status_snap; log('test', x=1); print(status_snap({}))" runs without error
+- All existing tests still pass (python3 -m pytest tests/unit/)
+
+**Depends on:** none
+
+### task-3: Implement record.py — CRUD and query helpers
+
+**Goal:** Implement the CRUD operations (record_path, ensure_workflows_dir, create_record, load_record, save_record, list_records) and the query helpers (get_plan, get_implementation_state, get_total_usage) in wflib/record.py. Write the corresponding integration tests.
+
+**Files:**
+- `wflib/record.py`
+- `tests/integration/test_record.py`
+- `wflib/types.py`
+- `docs/plans/wf-spec.md`
+
+**Constraints:**
+- record_path returns os.path.join(os.path.abspath(cwd), WORKFLOWS_DIR, f'{name}.json')
+- create_record generates a 4-hex-char workflow ID using secrets.token_hex(2), checks for duplicate name, writes atomically
+- save_record uses atomic write: write to a NamedTemporaryFile in the same directory, then os.replace() to the target path
+- load_record calls record_from_json (from types.py) for deserialization — do not reimplement JSON-to-dataclass logic
+- list_records scans the workflows directory, loads each .json file, skips malformed files with a warning to stderr
+- get_plan extracts a Plan object from record.plan (the PlanRecord) — returns Plan(goal, context, tasks, default_model) or None
+- get_implementation_state returns record.implementation.tasks dict or empty dict if no implementation
+- get_total_usage sums usage across brainstorm, plan, all task results, and all review records
+- create_record sets initial status to WorkflowStatus.INIT and created_at to current UTC ISO timestamp
+
+**Acceptance Criteria:**
+- TestCreateRecord, TestLoadSaveRecord, and TestQueryHelpers in tests/integration/test_record.py pass (no skips)
+- python3 -m pytest tests/integration/test_record.py -k 'TestCreateRecord or TestLoadSaveRecord or TestQueryHelpers' runs clean
+- All existing tests still pass (python3 -m pytest tests/unit/)
+
+**Depends on:** none
+
+### task-4: Implement record.py — phase transitions and event tracking
+
+**Goal:** Implement the phase transition functions (record_brainstorm, record_plan, record_implementation_start, record_task_start, record_task_complete, record_event, clear_active_resource, record_implementation_complete, record_review, record_fixup_complete, record_close) in wflib/record.py. Write the corresponding integration tests.
+
+**Files:**
+- `wflib/record.py`
+- `tests/integration/test_record.py`
+- `wflib/types.py`
+- `docs/plans/wf-spec.md`
+
+**Constraints:**
+- record_brainstorm creates a BrainstormRecord with recorded_at timestamp and sets workflow.status to PLANNING
+- record_plan creates a PlanRecord with recorded_at timestamp, initializes implementation.tasks with all statuses PENDING, and sets workflow.status to IMPLEMENTING
+- record_task_start sets the task status to RUNNING, adds started_at timestamp, adds worktree to active_resources (if provided), and appends a taskStart event
+- record_task_complete updates the task entry in implementation.tasks with the provided TaskResult and appends a taskComplete event
+- record_event creates an ImplementationEvent with current timestamp, the event string, optional task, and optional detail
+- record_implementation_complete sets completed_at timestamp and workflow.status to REVIEWING
+- record_review appends a new ReviewRecord to the reviews list with recorded_at timestamp and returns it
+- record_close creates a CloseRecord with recorded_at, merge_result, final_commit, diff_stat and sets workflow.status to DONE
+
+**Acceptance Criteria:**
+- TestPhaseTransitions, TestTaskTracking, and TestEvents in tests/integration/test_record.py pass (no skips)
+- python3 -m pytest tests/integration/test_record.py runs clean with zero skips
+- All existing tests still pass (python3 -m pytest tests/unit/)
+
+**Depends on:** task-3
+
+### task-5: Implement worktree.py — task worktree lifecycle
+
+**Goal:** Implement the task worktree functions: create_task_worktree, setup_worktree, symlink_deps, commit_if_dirty, merge_back, cleanup_worktree. Write the corresponding integration tests.
+
+**Files:**
+- `wflib/worktree.py`
+- `tests/integration/test_worktree.py`
+- `wflib/git.py`
+- `docs/plans/wf-spec.md`
+
+**Constraints:**
+- create_task_worktree creates a worktree at <cwd>-wf-<workflow_id>-<task_id> on branch wf-<workflow_id>-<task_id>, cleans up stale worktree/branch first if they exist
+- setup_worktree runs .worktree-setup hook (chmod +x, subprocess) if it exists in main_cwd, otherwise calls symlink_deps
+- symlink_deps creates symlinks in the worktree for node_modules, .venv, vendor, and .env if they exist in main_cwd — skip missing dirs, use os.symlink
+- commit_if_dirty uses `git add -A -- ':!docs/workflows/'` to exclude the record file directory, then commits with message '[workflow] <task_id>: <title>'
+- merge_back rebases the task branch onto the main branch, then does a fast-forward merge (git merge --ff-only) — returns MergeResult with conflicts populated on rebase failure
+- cleanup_worktree runs `git worktree remove --force` and `git branch -D`, is idempotent (no error if already cleaned up)
+
+**Acceptance Criteria:**
+- TestCreateTaskWorktree, TestSetupWorktree, TestSymlinkDeps, TestCommitIfDirty, TestMergeBack, and TestCleanupWorktree in tests/integration/test_worktree.py pass
+- python3 -m pytest tests/integration/test_worktree.py -k 'not TestWorkflowWorktree' runs clean with zero skips
+- All existing tests still pass (python3 -m pytest tests/unit/ tests/integration/test_git.py tests/integration/test_record.py)
+
+**Depends on:** task-1
+
+### task-6: Implement worktree.py — workflow worktree lifecycle
+
+**Goal:** Implement the workflow worktree functions: create_workflow_worktree, close_workflow_worktree, commit_or_amend_workflow_files, commit_remaining_changes. Write the corresponding integration tests.
+
+**Files:**
+- `wflib/worktree.py`
+- `tests/integration/test_worktree.py`
+- `wflib/git.py`
+- `docs/plans/wf-spec.md`
+
+**Constraints:**
+- create_workflow_worktree creates a worktree at ../<repo-name>-wf-<workflow_name>/ on branch wf-<workflow_name>
+- close_workflow_worktree rebases the workflow branch onto main, then fast-forward merges — on rebase conflict, falls back to `git merge --no-commit` and returns WorkflowCloseResult with merge_state='conflicted' and populated conflict_files
+- commit_or_amend_workflow_files commits only docs/workflows/ content — amends if the last commit message starts with '[workflow' (checked via git log), otherwise creates a new commit with '[workflow] <name>: update record'
+- commit_remaining_changes does `git add -A` then commits with the caller's message — returns False if nothing to commit
+- close_workflow_worktree populates diff_stat using `git diff --stat` between the base and the merge result
+
+**Acceptance Criteria:**
+- TestWorkflowWorktree in tests/integration/test_worktree.py passes (no skips)
+- python3 -m pytest tests/integration/test_worktree.py runs clean with zero skips in entire file
+- All existing tests still pass (python3 -m pytest tests/unit/ tests/integration/)
+
+**Depends on:** task-5
+
+### task-7: Update implementation tracker for Phase 2
+
+**Goal:** Update docs/plans/implementation-tracker.md to reflect Phase 2 completion. Fill in the Phase 2 log section with implementation summary, any deviations, and lessons learned. Verify all integration tests pass with zero skips.
+
+**Files:**
+- `docs/plans/implementation-tracker.md`
+- `tests/integration/test_git.py`
+- `tests/integration/test_record.py`
+- `tests/integration/test_worktree.py`
+
+**Constraints:**
+- Run python3 -m pytest tests/ --tb=short and capture the summary output — record the final test counts in the tracker
+- Fill in 'Started' and 'Completed' dates in the Phase 2 section
+- Document any deviations from the spec with rationale (same format as Phase 0 and Phase 1 entries)
+- Update the Phase Status table: Phase 2 status should be 'complete' with the task count
+- Do NOT modify any .py source files — this task only updates the tracker markdown
+
+**Acceptance Criteria:**
+- docs/plans/implementation-tracker.md Phase 2 section is fully populated (status, dates, implementation summary, deviations, lessons)
+- Phase Status table shows Phase 2 as complete
+- python3 -m pytest tests/ --tb=short shows zero Phase-2 skips in integration tests (Phase 3+ skips are fine)
+
+**Depends on:** task-4, task-6
