@@ -272,6 +272,46 @@ class TestFromDict(unittest.TestCase):
         self.assertIsNone(t2.model)
         self.assertEqual(t2.depends_on, ["task-1"])
 
+    def test_plan_from_json_rejects_extra_keys(self):
+        """plan_from_json rejects payloads with additional properties."""
+        data = {
+            "goal": "Split module",
+            "context": "TypeScript project",
+            "tasks": [{
+                "id": "task-1",
+                "title": "Extract A",
+                "goal": "Move A",
+                "files": ["a.ts"],
+                "constraints": [],
+                "acceptance": [],
+                "dependsOn": [],
+                "extra": "nope",
+            }],
+            "extraTop": True,
+        }
+        with self.assertRaises(ValueError) as ctx:
+            plan_from_json(data)
+        self.assertIn("additional properties", str(ctx.exception))
+
+    def test_plan_from_json_rejects_wrong_types(self):
+        """plan_from_json rejects payloads with wrong types."""
+        data = {
+            "goal": "Split module",
+            "context": 123,
+            "tasks": [{
+                "id": "task-1",
+                "title": "Extract A",
+                "goal": "Move A",
+                "files": ["a.ts"],
+                "constraints": [],
+                "acceptance": [],
+                "dependsOn": [],
+            }],
+        }
+        with self.assertRaises(ValueError) as ctx:
+            plan_from_json(data)
+        self.assertIn("expected string", str(ctx.exception))
+
     def test_record_from_json_minimal(self):
         """record_from_json handles a minimal record (workflow only)."""
         data = {
@@ -782,6 +822,48 @@ class TestValidateSchema(unittest.TestCase):
         """validate_schema catches missing task required fields."""
         errors = validate_schema({"id": "task-1"}, "task")
         self.assertTrue(len(errors) > 0)
+
+    def test_task_rejects_extra_keys(self):
+        """validate_schema rejects additionalProperties for task."""
+        task = {
+            "id": "task-1", "title": "T", "goal": "G",
+            "files": [], "constraints": [], "acceptance": [],
+            "dependsOn": [], "extra": "nope"
+        }
+        errors = validate_schema(task, "task")
+        self.assertTrue(any("extra" in e for e in errors))
+
+    def test_plan_rejects_wrong_types(self):
+        """validate_schema rejects wrong-typed plan fields."""
+        plan = {
+            "goal": "Test",
+            "context": 5,
+            "tasks": [{
+                "id": "task-1", "title": "T", "goal": "G",
+                "files": [], "constraints": [], "acceptance": [],
+                "dependsOn": []
+            }]
+        }
+        errors = validate_schema(plan, "plan")
+        self.assertTrue(any("expected string" in e for e in errors))
+
+    def test_additional_properties_schema_validation(self):
+        """validate_schema validates additionalProperties schemas for dict values."""
+        record = {
+            "workflow": {
+                "id": "a1b2", "name": "test",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "status": "init", "project": "/tmp",
+                "sourceBranch": "main", "sourceCommit": "abc"
+            },
+            "implementation": {
+                "activeResources": {
+                    "task-1": 123
+                }
+            }
+        }
+        errors = validate_schema(record)
+        self.assertTrue(any("implementation.activeResources.task-1" in e for e in errors))
 
     def test_valid_usage(self):
         """validate_schema validates usage component."""

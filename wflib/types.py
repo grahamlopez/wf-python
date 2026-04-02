@@ -522,6 +522,9 @@ def record_to_json(record: WorkflowRecord) -> dict:
 
 def plan_from_json(data: dict) -> Plan:
     """Deserialize a dict (from JSON) into a Plan."""
+    errors = validate_schema(data, "plan")
+    if errors:
+        raise ValueError("Schema validation failed: " + "; ".join(errors))
     return _dict_to_dataclass(Plan, data)
 
 
@@ -633,6 +636,19 @@ def _validate_against_schema(
                 errors.extend(
                     _validate_against_schema(data[key], prop_schema, defs, child_path)
                 )
+
+        additional = schema.get("additionalProperties", True)
+        if additional is not True:
+            for key, value in data.items():
+                if key in props:
+                    continue
+                child_path = f"{path}.{key}" if path else key
+                if additional is False:
+                    errors.append(f"{child_path}: additional properties not allowed")
+                elif isinstance(additional, dict):
+                    errors.extend(
+                        _validate_against_schema(value, additional, defs, child_path)
+                    )
 
     elif expected_type == "array":
         if not isinstance(data, list):
