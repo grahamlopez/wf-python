@@ -45,6 +45,9 @@ def is_clean(cwd: str) -> bool:
 
 def get_dirty_files(cwd: str) -> list[str]:
     """Get list of dirty (modified/untracked) files."""
+    # --porcelain format: 'XY <path>' where X=index status, Y=worktree
+    # status, and the path starts at column 3.  Renames appear as
+    # 'XY old -> new'; we take the destination path after '->'.
     result = git(["status", "--porcelain"], cwd=cwd)
     if not result.ok:
         return []

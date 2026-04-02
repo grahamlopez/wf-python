@@ -336,21 +336,7 @@ class TestWorkflowCommitOperations(unittest.TestCase):
     def test_commit_or_amend_workflow_files_no_prior_commits(self):
         """Fresh commit on a brand-new repo with no prior commits."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            repo = Path(tmp_dir) / "empty_repo"
-            repo.mkdir()
-            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@example.com"],
-                cwd=repo, check=True, capture_output=True, text=True,
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test User"],
-                cwd=repo, check=True, capture_output=True, text=True,
-            )
-            subprocess.run(
-                ["git", "checkout", "-b", "main"],
-                cwd=repo, check=True, capture_output=True, text=True,
-            )
+            repo = init_repo(Path(tmp_dir), with_commit=False)
             # No commits exist yet — git log -1 will fail
             docs_dir = repo / "docs" / "workflows"
             docs_dir.mkdir(parents=True)
