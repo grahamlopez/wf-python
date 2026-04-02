@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.integration.helpers import init_repo
 from wflib.git import is_clean
 from wflib.worktree import (
     MergeResult,
@@ -22,31 +23,6 @@ from wflib.worktree import (
     setup_worktree,
     symlink_deps,
 )
-
-
-def init_repo(base_dir: Path) -> Path:
-    repo = base_dir / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    subprocess.run(["git", "checkout", "-b", "main"], cwd=repo, check=True, capture_output=True, text=True)
-    (repo / "README.md").write_text("hello\n")
-    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True, text=True)
-    return repo
 
 
 class TestCreateTaskWorktree(unittest.TestCase):
