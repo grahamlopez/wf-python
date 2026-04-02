@@ -99,24 +99,6 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 
 8. **`types.py` keeps serialization, schema validation, and message extraction in one file (700 lines).** The review flagged this as a mixed-concern file (finding #5). Decision: keep as-is for now with clear section headers. The alternative (splitting into `serde.py` + moving `validate_schema` elsewhere) would create more files without meaningful benefit at this scale. If `types.py` grows past ~900 lines in later phases, revisit.
 
-**Review findings addressed (13 total):**
-
-| # | Finding | Severity | Resolution |
-|---|---------|----------|------------|
-| 1 | `_serialize_value` camelCase-converted dict data keys | Bug | Fixed: dict keys preserved as-is. Added 4 regression tests. |
-| 2 | `_config_to_merge_dict` flattened aliases+profiles causing collisions | Bug | Fixed: structured `_aliases`/`_profiles` sub-dicts. Added collision test. |
-| 3 | Duplicated validation logic (`_validate_values` vs `_validate_single_key_value`) | Duplication | Fixed: shared `_VALIDATION_RULES` registry + `_coerce_string_value`. |
-| 4 | `validate_schema` missing rationale comment | Clarity | Fixed: docstring explaining hand-rolled approach. |
-| 5 | `types.py` mixed concerns / cross-module underscore imports | Structure | Addressed: section comment + module docstring. Kept as-is (see deviation #8). |
-| 6 | `_compute_total_cost` duplicates future `get_total_usage` | Duplication risk | Added NOTE comment for Phase 2 delegation. |
-| 7 | `validate_plan` raises on errors but discards warnings | Design | Fixed: `ValidationError(ValueError)` carries full `ValidationResult`. |
-| 8 | Misleading test comment in `test_templates.py` | Misleading | Fixed: corrected offset explanation. |
-| 9 | Missing dash/underscore tests for `set_config_value` | Test gap | Fixed: added 2 tests. |
-| 10 | Verbose `_config_to_merge_dict` (5 identical patterns) | Verbosity | Fixed: extracted `_section_to_dict` helper. |
-| 11 | Inline `import re` in `templates.py` | Inconsistency | Fixed: moved to module-level. |
-| 12 | Brittle JSON string comparison in round-trip test | Test quality | Fixed: direct dict comparison. |
-| 13 | Missing return type annotations on helpers | Type safety | Fixed: added return types to 3 functions. |
-
 **Lessons learned:**
 
 - **Dict key vs field name serialization must be distinct.** The generic `_serialize_value` was blindly applying camelCase to all string dict keys, corrupting data keys (task IDs, alias names) that contain underscores. The bug was masked by test fixtures using only hyphenated keys like `"task-1"`. **Always include underscored data keys in serialization test fixtures.**
