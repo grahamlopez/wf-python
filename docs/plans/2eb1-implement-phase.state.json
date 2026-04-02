@@ -325,19 +325,253 @@
   },
   "planId": "2eb1",
   "statuses": {
-    "task-1": "pending",
-    "task-2": "pending",
-    "task-3": "pending",
-    "task-4": "pending",
-    "task-5": "pending",
-    "task-6": "pending",
-    "task-7": "pending",
-    "task-8": "pending",
-    "task-9": "pending",
-    "task-10": "pending",
-    "task-11": "pending"
+    "task-1": "done",
+    "task-2": "done",
+    "task-3": "done",
+    "task-4": "done",
+    "task-5": "done",
+    "task-6": "done",
+    "task-7": "done",
+    "task-8": "done",
+    "task-9": "done",
+    "task-10": "done",
+    "task-11": "done"
   },
-  "results": {},
+  "results": {
+    "task-1": {
+      "taskId": "task-1",
+      "title": "Profile registry + resolve_alias",
+      "exitCode": 0,
+      "summary": "Implemented alias resolution and profile lookup logic, and unskipped/filled the related unit tests.",
+      "filesChanged": [
+        "profiles/__init__.py",
+        "tests/unit/test_profiles.py"
+      ],
+      "notes": "None.",
+      "usage": {
+        "input": 13912,
+        "output": 1996,
+        "cacheRead": 41856,
+        "cacheWrite": 0,
+        "cost": 0.06206480000000001,
+        "turns": 7
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "profiles/__init__.py        | 20 ++++++++++++++++++--\n tests/unit/test_profiles.py | 28 +++++++++++++++++++++-------\n 2 files changed, 39 insertions(+), 9 deletions(-)"
+    },
+    "task-4": {
+      "taskId": "task-4",
+      "title": "Pi JSON mode adapter",
+      "exitCode": 0,
+      "summary": "Implemented `pi_json_mode.parse` to handle NDJSON parsing, usage accumulation, model/provider extraction, and error defaults. Added realistic NDJSON fixtures and unskipped/implemented all six adapter tests.",
+      "filesChanged": [
+        "adapters/pi_json_mode.py",
+        "tests/adapter/test_pi_json_mode.py"
+      ],
+      "notes": "- Tests not run: `python` is not available in the environment (`python: command not found`).",
+      "usage": {
+        "input": 33583,
+        "output": 7978,
+        "cacheRead": 361984,
+        "cacheWrite": 0,
+        "cost": 0.22708470000000003,
+        "turns": 21
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "adapters/pi_json_mode.py           |  75 ++++++++++++++++-\n profiles/__init__.py               |  20 +----\n tests/adapter/test_pi_json_mode.py | 159 +++++++++++++++++++++++++++++++++++--\n tests/unit/test_profiles.py        |  28 ++-----\n 4 files changed, 236 insertions(+), 46 deletions(-)"
+    },
+    "task-5": {
+      "taskId": "task-5",
+      "title": "Pi session adapter",
+      "exitCode": 0,
+      "summary": "Implemented pi session parsing with usage aggregation and error handling, plus comprehensive adapter tests with synthesized session fixtures and results-file short-circuiting.",
+      "filesChanged": [
+        "adapters/pi_session.py",
+        "tests/adapter/test_pi_session.py"
+      ],
+      "notes": "- Unable to run tests because `python` was not found in the environment (suggest `python3`).",
+      "usage": {
+        "input": 43653,
+        "output": 10990,
+        "cacheRead": 305920,
+        "cacheWrite": 0,
+        "cost": 0.27256850000000005,
+        "turns": 23
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "adapters/pi_json_mode.py           |  75 +--------------\n adapters/pi_session.py             | 126 ++++++++++++++++++++++++-\n profiles/__init__.py               |  20 +---\n tests/adapter/test_pi_json_mode.py | 159 ++-----------------------------\n tests/adapter/test_pi_session.py   | 189 ++++++++++++++++++++++++++++++++++++-\n tests/unit/test_profiles.py        |  28 ++----\n 6 files changed, 324 insertions(+), 273 deletions(-)"
+    },
+    "task-6": {
+      "taskId": "task-6",
+      "title": "Claude Code stream-json adapter",
+      "exitCode": 0,
+      "summary": "Implemented Claude stream-json parser to handle NDJSON events, tool calls, usage/model extraction, and error defaults, and added comprehensive adapter tests with synthetic fixtures.",
+      "filesChanged": [
+        "adapters/claude_stream_json.py",
+        "tests/adapter/test_claude_stream_json.py"
+      ],
+      "notes": "- Tests for the adapter now pass (`pytest -q tests/adapter/test_claude_stream_json.py`).",
+      "usage": {
+        "input": 108914,
+        "output": 10443,
+        "cacheRead": 454272,
+        "cacheWrite": 0,
+        "cost": 0.4562126,
+        "turns": 28
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "adapters/claude_stream_json.py           | 123 +++++++++++++++++++-\n adapters/pi_json_mode.py                 |  75 +-----------\n adapters/pi_session.py                   | 126 +--------------------\n profiles/__init__.py                     |  20 +---\n tests/adapter/test_claude_stream_json.py | 135 +++++++++++++++++++++-\n tests/adapter/test_pi_json_mode.py       | 159 +-------------------------\n tests/adapter/test_pi_session.py         | 189 +------------------------------\n tests/unit/test_profiles.py              |  28 ++---\n 8 files changed, 274 insertions(+), 581 deletions(-)"
+    },
+    "task-2": {
+      "taskId": "task-2",
+      "title": "Pi profile implementation",
+      "exitCode": 0,
+      "summary": "Implemented full PiProfile behavior (model resolution, command construction, tmux wrapper generation, parsing delegation, tool paths) and unskipped/filled PiProfile tests per Phase 3 requirements.",
+      "filesChanged": [
+        "profiles/pi.py",
+        "tests/unit/test_profiles.py",
+        "tests/profile/test_pi_profile.py"
+      ],
+      "notes": "Recorded-output tests remain skipped as instructed because adapters are not yet implemented.",
+      "usage": {
+        "input": 69330,
+        "output": 10990,
+        "cacheRead": 218368,
+        "cacheWrite": 0,
+        "cost": 0.3214394,
+        "turns": 15
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "adapters/claude_stream_json.py           | 123 +-------------------\n adapters/pi_json_mode.py                 |  75 +-----------\n adapters/pi_session.py                   | 126 +--------------------\n profiles/pi.py                           | 100 ++++++++++++++--\n tests/adapter/test_claude_stream_json.py | 135 +---------------------\n tests/adapter/test_pi_json_mode.py       | 159 +-------------------------\n tests/adapter/test_pi_session.py         | 189 +------------------------------\n tests/profile/test_pi_profile.py         | 108 ++++++++++++++++--\n tests/unit/test_profiles.py              |  86 ++++++++++++--\n 9 files changed, 289 insertions(+), 812 deletions(-)"
+    },
+    "task-3": {
+      "taskId": "task-3",
+      "title": "Claude Code + Mock profile implementations",
+      "exitCode": 0,
+      "summary": "Implemented Claude Code and Mock profile behaviors per spec and unskipped/filled the Claude Code + Mock profile tests for model resolution and command construction.",
+      "filesChanged": [
+        "profiles/claude_code.py",
+        "profiles/mock.py",
+        "tests/unit/test_profiles.py",
+        "tests/profile/test_claude_code_profile.py"
+      ],
+      "notes": "None.",
+      "usage": {
+        "input": 38497,
+        "output": 7724,
+        "cacheRead": 247040,
+        "cacheWrite": 0,
+        "cost": 0.21671450000000003,
+        "turns": 13
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "adapters/claude_stream_json.py            | 123 +------------------\n adapters/pi_session.py                    | 126 +-------------------\n profiles/claude_code.py                   |  70 +++++++++--\n profiles/mock.py                          |  11 +-\n profiles/pi.py                            | 100 ++--------------\n tests/adapter/test_claude_stream_json.py  | 135 +--------------------\n tests/adapter/test_pi_session.py          | 189 +-----------------------------\n tests/profile/test_claude_code_profile.py |  66 ++++++++++-\n tests/profile/test_pi_profile.py          | 108 ++---------------\n tests/unit/test_profiles.py               | 144 +++++++++--------------\n 10 files changed, 219 insertions(+), 853 deletions(-)"
+    },
+    "task-7": {
+      "taskId": "task-7",
+      "title": "Runner: result extraction + _read_agent_results",
+      "exitCode": 0,
+      "summary": "Implemented runner result extraction helpers and added comprehensive unit tests for report extraction, fallback summaries, and results.json parsing/error handling.",
+      "filesChanged": [
+        "wflib/runner.py",
+        "tests/unit/test_runner.py"
+      ],
+      "notes": "None.",
+      "usage": {
+        "input": 84866,
+        "output": 9385,
+        "cacheRead": 489216,
+        "cacheWrite": 0,
+        "cost": 0.3916278000000001,
+        "turns": 23
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "adapters/claude_stream_json.py            | 123 +----------------------\n profiles/claude_code.py                   |  70 ++-----------\n profiles/mock.py                          |  11 +-\n profiles/pi.py                            | 100 ++-----------------\n tests/adapter/test_claude_stream_json.py  | 135 ++-----------------------\n tests/profile/test_claude_code_profile.py |  66 ++----------\n tests/profile/test_pi_profile.py          | 108 ++------------------\n tests/unit/test_profiles.py               | 144 +++------------------------\n tests/unit/test_runner.py                 | 160 ++++++++++++++++++++++++++++++\n wflib/runner.py                           |  86 +++++++++++++++-\n 10 files changed, 301 insertions(+), 702 deletions(-)"
+    },
+    "task-11": {
+      "taskId": "task-11",
+      "title": "Profile integration tests with recorded output + final verification",
+      "exitCode": 0,
+      "summary": "Unskipped and implemented the remaining profile recorded-output integration tests with realistic NDJSON/session fixtures and verified parsing behavior. Ran the full test suite with all Phase 3 tests passing.",
+      "filesChanged": [
+        "tests/profile/test_pi_profile.py",
+        "tests/profile/test_claude_code_profile.py"
+      ],
+      "notes": "- Tests run: `python3 -m pytest tests/ --tb=short` (347 passed, 76 skipped).",
+      "usage": {
+        "input": 50647,
+        "output": 3669,
+        "cacheRead": 67712,
+        "cacheWrite": 0,
+        "cost": 0.1751571,
+        "turns": 8
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "tests/profile/test_claude_code_profile.py |  63 ++++++++++-\n tests/profile/test_pi_profile.py          | 172 +++++++++++++++++++++++++++++-\n tests/unit/test_runner.py                 | 160 ---------------------------\n wflib/runner.py                           |  86 +--------------\n 4 files changed, 236 insertions(+), 245 deletions(-)"
+    },
+    "task-9": {
+      "taskId": "task-9",
+      "title": "Tmux module implementation",
+      "exitCode": 0,
+      "summary": "Implemented tmux helpers in `wflib/tmux.py` with pane/window management, polling, and shell escaping, plus added full integration tests for tmux behavior with proper skips outside tmux sessions.",
+      "filesChanged": [
+        "wflib/tmux.py",
+        "tests/integration/test_tmux.py"
+      ],
+      "notes": "Pane-related tests skip unless `TMUX` is set, per constraints, to avoid failing outside a tmux session.",
+      "usage": {
+        "input": 52899,
+        "output": 13576,
+        "cacheRead": 299008,
+        "cacheWrite": 0,
+        "cost": 0.32033390000000006,
+        "turns": 14
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "profiles/claude_code.py                   |  70 +-------\n profiles/mock.py                          |  11 +-\n profiles/pi.py                            | 100 +----------\n tests/integration/test_tmux.py            | 133 ++++++++++++--\n tests/profile/test_claude_code_profile.py | 129 +-------------\n tests/profile/test_pi_profile.py          | 276 ++----------------------------\n tests/unit/test_profiles.py               | 144 ++--------------\n tests/unit/test_runner.py                 | 160 -----------------\n wflib/runner.py                           |  86 +---------\n wflib/tmux.py                             | 113 +++++++++++-\n 10 files changed, 283 insertions(+), 939 deletions(-)"
+    },
+    "task-8": {
+      "taskId": "task-8",
+      "title": "Runner: spawn_headless",
+      "exitCode": 0,
+      "summary": "Implemented `spawn_headless` to write the system prompt to a temp file, build the headless command, run the subprocess, parse/write results.json, and return parsed results with robust error handling and cleanup.",
+      "filesChanged": [
+        "wflib/runner.py"
+      ],
+      "notes": "Ensured mock profile results aren’t overwritten by only writing parsed results when present or when no results file exists.",
+      "usage": {
+        "input": 67916,
+        "output": 10222,
+        "cacheRead": 371584,
+        "cacheWrite": 0,
+        "cost": 0.33703720000000004,
+        "turns": 25
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "tests/integration/test_tmux.py            | 133 +++--------------------\n tests/profile/test_claude_code_profile.py |  63 +----------\n tests/profile/test_pi_profile.py          | 172 +-----------------------------\n wflib/runner.py                           |  71 +++++++++++-\n wflib/tmux.py                             | 113 ++------------------\n 5 files changed, 93 insertions(+), 459 deletions(-)"
+    },
+    "task-10": {
+      "taskId": "task-10",
+      "title": "Runner: spawn_in_tmux + profile protocol compliance tests",
+      "exitCode": 0,
+      "summary": "Implemented `spawn_in_tmux` to create temp prompt/system/wrapper files, run the tmux pane workflow, and read results, plus unskipped and implemented protocol compliance tests for all profiles.",
+      "filesChanged": [
+        "wflib/runner.py",
+        "tests/unit/test_profiles.py"
+      ],
+      "notes": "None.",
+      "usage": {
+        "input": 65146,
+        "output": 9707,
+        "cacheRead": 422784,
+        "cacheWrite": 0,
+        "cost": 0.33392220000000006,
+        "turns": 18
+      },
+      "model": "openai/openai/gpt-5.2-codex",
+      "diffStat": "tests/unit/test_profiles.py |  25 +++++++++--\n wflib/runner.py             | 101 +++++++++++++++++++++++++++++++++++++++++++-\n 2 files changed, 122 insertions(+), 4 deletions(-)"
+    }
+  },
   "planningUsage": {
     "input": 0,
     "output": 0,
@@ -347,5 +581,6 @@
     "turns": 0
   },
   "planningModel": "nvinf-anthropic/aws/anthropic/bedrock-claude-opus-4-6",
-  "planFile": "docs/plans/2eb1-implement-phase.md"
+  "planFile": "docs/plans/2eb1-implement-phase.md",
+  "baseCommit": "2a0d648d651aa9fee27d04861794320c5bec1126"
 }

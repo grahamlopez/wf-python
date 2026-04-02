@@ -11,7 +11,7 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 | 0 | Scaffold | **complete** | 7 | Directory structure, type stubs, module stubs, schema, test infra, fixtures, placeholder tests |
 | 1 | Pure Foundation | **complete** | 6 | types, validate, config, brief, render, templates + unit tests |
 | 2 | Git/IO Layer | **complete** | 7 | git, worktree, record, log + integration tests |
-| 3 | Profiles + Runner | not started | — | profiles, adapters, runner, tmux + profile/adapter tests |
+| 3 | Profiles + Runner | **complete** | 11 | profiles, adapters, runner, tmux + profile/adapter tests |
 | 4 | Orchestration + CLI | not started | — | scheduler, task_executor, review, CLI, help, completions + E2E tests |
 | 5 | Tools + Prompts + Pi Wrapper | not started | — | pi extensions, MCP server, prompts, templates, pi wrapper |
 
@@ -171,10 +171,43 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 **Resolved early:**
 - **Finding #5:** Shared `_wf_dir` helper added to `profiles/__init__.py`, profiles now delegate to it
 
-**Started:** —
-**Completed:** —
-**Lessons learned:** —
-**Spec adjustments:** —
+**Started:** 2026-04-02
+**Completed:** 2026-04-02
+
+**Implementation summary (python3 -m pytest tests/ --tb=short: 367 passed, 65 skipped):**
+- `profiles/__init__.py` (100 lines): resolve_alias, get_profile with lazy imports.
+- `profiles/pi.py` (143 lines): Full model resolution, headless command construction, tmux wrapper generation, adapter delegation.
+- `profiles/claude_code.py` (120 lines): Headless command with MCP config, model resolution with unavailable-model error messages.
+- `profiles/mock.py` (55 lines): Alias-only model resolution, mock_agent.py invocation.
+- `adapters/pi_json_mode.py` (75 lines): NDJSON parser for pi --mode json, usage accumulation from message_end/cost sub-objects.
+- `adapters/pi_session.py` (120 lines): Session .jsonl parser with results_file short-circuit, usage accumulation.
+- `adapters/claude_stream_json.py` (130 lines): Stream-json NDJSON parser, tool_use→toolCall mapping, Claude usage field name translation.
+- `wflib/runner.py` (225 lines): AgentResult dataclass, extract_report_result, extract_summary_fallback, _read_agent_results, spawn_headless, spawn_in_tmux.
+- `wflib/tmux.py` (120 lines): is_tmux_available, shell_escape, pane management, exit-code polling with pane-gone fallback.
+- New test file: `tests/unit/test_runner.py` (8 tests for extraction functions).
+
+**Intentional deviations from spec:**
+
+1. **`pi_session.parse` signature: `results_file` is `str | None = None` (optional) instead of required `str`.** The spec and Phase 0 stub have `parse(session_dir: str, results_file: str)`. The implementation makes `results_file` optional because the session parser should work standalone (just session_dir) without requiring a results file path. When called from the Pi profile's tmux wrapper, results_file is always provided. When called for testing or inspection, session_dir alone is sufficient.
+
+2. **`pi_session.py` accumulates `turns` from `usage.turns` field instead of counting assistant messages.** The spec says turns should be counted as "count assistant message_end events" (for JSON mode) but doesn't specify the session adapter's counting method. The implementation accumulates from the usage dict's `turns` field if present (pi may populate this), which can be zero if pi's session format doesn't include it. Should be revisited if turn counts come out wrong in practice — easy to add an assistant-message count fallback.
+
+3. **`runner.py` uses `WF_RESULTS_PATH` env var to locate results.json, falling back to `cwd/results.json`.** The spec's mock_agent example uses `WF_RESULTS_PATH` as a required env var. The runner implementation sets it in the subprocess env (for mock agent compatibility) and uses it as the default location. This is a mild divergence from the spec which has the runner writing to `docs/workflows/.sessions/` (deferred to Phase 4 per planned deviation #3).
+
+4. **`spawn_headless` writes the profile's parsed results to results.json even for non-mock profiles.** The spec has the runner producing results.json via the adapter as an intermediary. The implementation writes the adapter's parsed output as results.json, then reads it back via `_read_agent_results`. This is a slightly round-about path (parse → write → read) but provides a uniform code path and ensures results.json always exists for crash recovery. The mock profile's `parse_headless_output` returns `{}`, so the runner only writes if the parsed result is non-empty or no results file exists yet — avoiding overwriting mock agent's direct results.json.
+
+5. **`spawn_in_tmux` cleans up temp files in `finally` block, including the wrapper script and prompt files.** The spec says the profile's wrapper script must produce results_file before writing exit-code file, and temp cleanup happens after. The implementation follows this ordering (wait_for_exit_code_file blocks until wrapper is done, then reads results), but also cleans individual temp files in addition to the TemporaryDirectory cleanup. Defensive double-cleanup; no functional difference.
+
+**Post-execution bug fix:**
+
+- **`pane_exists` used `display-message -t <pane_id> -p` which returns rc=0 even for non-existent panes.** This caused `test_pane_exists_for_gone_pane` to fail and `test_fallback_on_pane_gone` to hang indefinitely (infinite polling loop). Fixed by switching to `list-panes -t <pane_id>` which reliably returns rc=1 for non-existent panes. Root cause: tmux's `display-message -p` without a format string falls back to the current pane context rather than erroring on an invalid target.
+
+**Lessons learned:**
+- **Tmux command behavior is version-dependent and not always intuitive.** `display-message -t <pane_id> -p` returns success even for dead panes in some tmux versions. Always verify tmux command semantics with actual pane lifecycle testing, not just the man page.
+- **Synthetic test fixtures require structural accuracy.** The inline NDJSON fixtures need to match the real format closely (e.g., pi's `cost` sub-object within `usage`, Claude's `input_tokens` vs `input` naming). Captured a real pi `--mode json` interaction during planning to ensure fixture accuracy.
+- **Runner result extraction should be pure functions testable independently.** Separating `extract_report_result`, `extract_summary_fallback`, and `_read_agent_results` from the spawning logic (task-7 before task-8) paid off — the extraction pipeline has 8 focused unit tests that don't need subprocess mocking.
+
+**Spec adjustments:** None needed. All deviations are implementation-level refinements compatible with the spec's contracts.
 
 ---
 

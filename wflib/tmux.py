@@ -131,7 +131,9 @@ def get_or_create_execution_pane(
 
 def pane_exists(pane_id: str) -> bool:
     """Check if a tmux pane exists."""
-    result = _run_tmux(["display-message", "-t", pane_id, "-p"], check=False)
+    # display-message -t returns rc=0 even for non-existent panes in some
+    # tmux versions. list-panes -t reliably returns rc=1 when the pane is gone.
+    result = _run_tmux(["list-panes", "-t", pane_id, "-F", "#{pane_id}"], check=False)
     return result.returncode == 0
 
 
