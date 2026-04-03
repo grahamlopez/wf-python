@@ -12,7 +12,8 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 | 1 | Pure Foundation | **complete** | 6 | types, validate, config, brief, render, templates + unit tests |
 | 2 | Git/IO Layer | **complete** | 7 | git, worktree, record, log + integration tests |
 | 3 | Profiles + Runner | **complete** | 11 | profiles, adapters, runner, tmux + profile/adapter tests |
-| 4 | Orchestration + CLI | not started | — | scheduler, task_executor, review, CLI, help, completions + E2E tests |
+| 4a | Orchestration + CLI (core) | not started | 6 | scheduler, task_executor, review, CLI handlers |
+| 4b | Orchestration + CLI (validation) | not started | — | E2E tests, help content, completions, deferred items |
 | 5 | Tools + Prompts + Pi Wrapper | not started | — | pi extensions, MCP server, prompts, templates, pi wrapper |
 
 ---
@@ -211,22 +212,48 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 
 ---
 
-### Phase 4 — Orchestration + CLI
+### Phase 4 — Orchestration + CLI (split into 4a/4b)
 
-**Planned scope:** scheduler.py, task_executor.py, review.py, bin/wf (full argparse), help.py, completions.py + E2E tests
+**Split rationale:** The original Phase 4 plan was ~13 tasks spanning core engine, CLI, E2E tests, help content, and completions. During planning, we split it into two sub-phases:
 
-**Acceptance criteria:** All `tests/e2e/` pass, `wf help` works
+- **Phase 4a (core):** scheduler, task_executor, review, all CLI handlers — where all hard design decisions live (scheduler semantics, merge conflict resolution, task lifecycle, CLI wiring). 6 tasks.
+- **Phase 4b (validation):** E2E tests, help content (~800 lines), completions, deferred items, tracker update — exercises and documents what 4a built. Planned just-in-time after 4a is reviewed.
+
+This split improves review quality: 4a gets thorough review before 4b builds on top of it. If 4a's review surfaces issues, 4b tasks would need to change anyway. The split aligns with the dependency graph — all 4b tasks depend on the last 4a task.
+
+---
+
+### Phase 4a — Orchestration + CLI (core)
+
+**Planned scope:** scheduler.py (pure functions + async execute), task_executor.py, review.py, bin/wf (all CLI handlers)
+
+**Acceptance criteria:** All existing 367 tests still pass, all CLI subcommands have real implementations (no `_not_implemented` remaining), scheduler pure functions have unit tests
 
 **Review findings to address:**
 - **Finding #8:** `ReviewRecord` import was fixed in Phase 0, but `execute_fixup` is still a stub — needs real implementation
-- **Finding #10:** E2E tests use `unittest.TestCase` but `conftest.py` provides pytest fixtures (`@pytest.fixture`, `monkeypatch`) — need to reconcile by converting E2E tests to pytest functions or wrapping fixtures for unittest compatibility
-- **Finding #6:** crash-recovery fixture `_comment` added in Phase 0, but the E2E test setup must actually create pre-crash state where all tasks were running (none completed), then verify all reset to pending
 - **Finding #7:** `scheduler.py` → `render.py` cross-module import comment added in Phase 0 — implement `ExecutionSummary` with `UsageRow` integration per spec
-- **Note:** `help.py` routing/scaffolding and topic registry are already in place (Phase 0 review fixup). Remaining work is writing the actual ~800 lines of topic content.
-- **Deferred from Phase 2:** `brief.py` `toRelative` path conversion (Phase 1 deviation #6). Should be wired up when `task_executor.py` assembles briefs with worktree paths.
 
 **Resolved early:**
 - **Finding #13:** `bin/wf` now aliases no-args to `wf help topics` and `wf help` routes to the help module
+
+**Started:** —
+**Completed:** —
+**Lessons learned:** —
+**Spec adjustments:** —
+
+---
+
+### Phase 4b — Orchestration + CLI (validation)
+
+**Planned scope (tentative — planned just-in-time after 4a review):** E2E tests (39 skipped stubs → real assertions), help.py (~800 lines of topic content), completions.py (generate_bash/zsh/fish, dynamic complete), brief.py toRelative path conversion, tracker update
+
+**Acceptance criteria:** All `tests/e2e/` pass, `wf help` works, all Phase 4 skips removed, total tests >= 432
+
+**Review findings deferred from 4a:**
+- **Finding #10:** E2E tests use `unittest.TestCase` but `conftest.py` provides pytest fixtures — reconcile by converting to pytest functions
+- **Finding #6:** crash-recovery fixture setup must create pre-crash state with all tasks running, verify all reset to pending
+- **Note:** `help.py` routing/scaffolding and topic registry are already in place. Remaining work is writing the actual ~800 lines of topic content.
+- **Deferred from Phase 2:** `brief.py` `toRelative` path conversion (Phase 1 deviation #6). Should be wired up when `task_executor.py` assembles briefs with worktree paths.
 
 **Started:** —
 **Completed:** —
