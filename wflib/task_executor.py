@@ -22,7 +22,6 @@ from wflib.types import (
     WorkflowRecord,
 )
 from wflib.worktree import MergeResult, WorktreeInfo
-from profiles import RunnerProfile
 
 
 def _load_system_prompt(filename: str) -> str:
