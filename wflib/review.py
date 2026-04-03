@@ -15,7 +15,8 @@ from wflib.types import (
     extract_tool_call,
     plan_from_json,
 )
-from profiles import get_profile, wf_dir
+from profiles import get_profile
+from wflib._util import load_prompt
 
 
 # --- Constants ---
@@ -109,15 +110,6 @@ def build_diff_context(cwd: str, base_commit: str | None = None) -> str:
     return "# Diff Context\n\n" + "\n\n".join(sections) + "\n"
 
 
-# --- Prompt loading ---
-
-def _load_prompt(filename: str) -> str:
-    """Load a prompt file from the prompts/ directory."""
-    prompt_path = os.path.join(wf_dir(), "prompts", filename)
-    with open(prompt_path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
 # --- Extract last assistant text ---
 
 def _extract_last_assistant_text(messages: list[dict]) -> str:
@@ -174,7 +166,7 @@ async def run_review(
     prompt = "\n\n".join(prompt_parts)
 
     # Load system prompt
-    system_prompt = _load_prompt("reviewer.md")
+    system_prompt = load_prompt("reviewer.md")
 
     # Spawn the agent
     result = await asyncio.to_thread(
@@ -218,7 +210,7 @@ async def run_auto_review(
     diff_context = build_diff_context(cwd, base_commit)
 
     # Load system prompt
-    system_prompt = _load_prompt("reviewer-with-plan.md")
+    system_prompt = load_prompt("reviewer-with-plan.md")
 
     # Get tool paths — we need submit-plan for auto-review
     tool_paths = profile.get_tool_paths()

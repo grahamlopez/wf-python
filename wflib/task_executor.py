@@ -11,6 +11,7 @@ import asyncio
 import os
 import shutil
 import subprocess
+import sys
 
 from wflib.types import (
     ImplementationEventType,
@@ -22,20 +23,6 @@ from wflib.types import (
     WorkflowRecord,
 )
 from wflib.worktree import MergeResult, WorktreeInfo
-
-
-def _load_system_prompt(filename: str) -> str:
-    """Load a system prompt from the prompts/ directory."""
-    prompts_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "prompts",
-    )
-    path = os.path.join(prompts_dir, filename)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return ""
 
 
 async def run_task(
@@ -67,7 +54,7 @@ async def run_task(
       (10) merge back with lock via _merge_and_cleanup
       (11) build TaskResult and return
     """
-    from wflib._util import utc_now_iso
+    from wflib._util import utc_now_iso, load_prompt
     from wflib.brief import assemble_task_brief
     from wflib.record import save_record, get_implementation_state
     from wflib.scheduler import resolve_task_model
@@ -108,7 +95,11 @@ async def run_task(
         # (5) Get profile (already resolved above)
 
         # (6) Spawn agent via runner.spawn_headless
-        system_prompt = _load_system_prompt("implementer.md")
+        try:
+            system_prompt = load_prompt("implementer.md")
+        except FileNotFoundError:
+            print("warning: prompt file 'implementer.md' not found; using empty system prompt", file=sys.stderr)
+            system_prompt = ""
         tools = list(profile.get_tool_paths().keys())
 
         agent_result = await asyncio.to_thread(
@@ -295,6 +286,7 @@ async def _merge_and_cleanup(
 
     On clean merge: cleanup worktree, clear active_resource.
     """
+    from wflib._util import load_prompt
     from wflib.git import git
     from wflib.record import record_event, clear_active_resource, save_record
     from wflib.worktree import merge_back, cleanup_worktree
@@ -343,7 +335,11 @@ async def _merge_and_cleanup(
         conflict_prompt = "\n".join(prompt_parts)
 
         # Load merge-resolver system prompt
-        system_prompt = _load_system_prompt("merge-resolver.md")
+        try:
+            system_prompt = load_prompt("merge-resolver.md")
+        except FileNotFoundError:
+            print("warning: prompt file 'merge-resolver.md' not found; using empty system prompt", file=sys.stderr)
+            system_prompt = ""
         tools = list(profile.get_tool_paths().keys())
 
         # Spawn resolution agent in the worktree
