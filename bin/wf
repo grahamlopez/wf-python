@@ -664,9 +664,31 @@ def _cmd_completions(args):
 # CLI handler: wf execute
 # ---------------------------------------------------------------------------
 
+async def _execute_and_review_pipeline(record, cwd, args, cli_overrides):
+    """Execute plan and optionally run auto-review in a single async pipeline.
+
+    Returns the execution summary.
+    """
+    from wflib.record import save_record
+    from wflib.scheduler import execute_plan
+
+    summary = await execute_plan(record, cwd, cli_overrides or None)
+    save_record(record, cwd)
+
+    # Auto-review if enabled
+    if getattr(args, 'auto_review', False) or record.workflow.config.execute.auto_review:
+        if summary.counts.get("failed", 0) == 0 and summary.counts.get("done", 0) > 0:
+            try:
+                await _do_auto_review(record, cwd, args)
+                save_record(record, cwd)
+            except Exception as exc:
+                sys.stderr.write(f"Auto-review failed: {exc}\n")
+
+    return summary
+
+
 def _cmd_execute(args):
     from wflib.record import load_record, save_record
-    from wflib.scheduler import execute_plan
     from wflib.config import apply_cli_overrides
 
     cwd = os.path.abspath(args.cwd)
@@ -694,21 +716,14 @@ def _cmd_execute(args):
         cli_overrides["auto_close"] = args.auto_close
 
     try:
-        summary = asyncio.run(execute_plan(record, cwd, cli_overrides or None))
+        summary = asyncio.run(
+            _execute_and_review_pipeline(record, cwd, args, cli_overrides)
+        )
     except Exception as exc:
         save_record(record, cwd)
         _error_exit(str(exc))
 
     save_record(record, cwd)
-
-    # Auto-review if enabled
-    if getattr(args, 'auto_review', False) or record.workflow.config.execute.auto_review:
-        if summary.counts.get("failed", 0) == 0 and summary.counts.get("done", 0) > 0:
-            try:
-                _do_auto_review(record, cwd, args)
-                save_record(record, cwd)
-            except Exception as exc:
-                sys.stderr.write(f"Auto-review failed: {exc}\n")
 
     print(json.dumps({
         "counts": summary.counts,
@@ -810,8 +825,13 @@ def _cmd_review(args):
 # CLI handler: wf auto-review
 # ---------------------------------------------------------------------------
 
-def _do_auto_review(record, cwd, args):
-    """Shared auto-review logic for wf auto-review and wf execute --auto-review."""
+# WARNING: This function must be awaited inside asyncio.run(). Do not call
+# from within an existing event loop — asyncio.run() will raise RuntimeError.
+async def _do_auto_review(record, cwd, args):
+    """Shared auto-review logic for wf auto-review and wf execute --auto-review.
+
+    This is an async function that must be awaited inside an asyncio.run() call.
+    """
     from wflib.record import save_record, record_review
     from wflib.review import run_auto_review
     from wflib.scheduler import execute_fixup
@@ -821,12 +841,12 @@ def _do_auto_review(record, cwd, args):
     if record.implementation:
         base_commit = record.implementation.base_commit
 
-    result = asyncio.run(run_auto_review(
+    result = await run_auto_review(
         cwd=cwd,
         config=config,
         base_commit=base_commit,
         cli_model=getattr(args, 'model', None) if hasattr(args, 'model') else None,
-    ))
+    )
 
     findings_actionable = result.plan is not None
     review_rec = record_review(
@@ -846,9 +866,9 @@ def _do_auto_review(record, cwd, args):
         if hasattr(args, 'fixup_concurrency') and args.fixup_concurrency:
             cli_overrides["concurrency"] = args.fixup_concurrency
 
-        fixup_summary = asyncio.run(execute_fixup(
+        fixup_summary = await execute_fixup(
             review_rec, record, cwd, cli_overrides or None,
-        ))
+        )
         save_record(record, cwd)
         return result, fixup_summary
 
@@ -868,7 +888,7 @@ def _cmd_auto_review(args):
         _error_exit(str(exc))
 
     try:
-        result, fixup_summary = _do_auto_review(record, cwd, args)
+        result, fixup_summary = asyncio.run(_do_auto_review(record, cwd, args))
     except Exception as exc:
         save_record(record, cwd)
         _error_exit(str(exc))
