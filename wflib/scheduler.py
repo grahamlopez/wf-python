@@ -13,6 +13,7 @@ from typing import Callable
 
 from wflib._util import utc_now_iso
 from wflib.types import (
+    ImplementationEvent,
     ImplementationEventType,
     ImplementationRecord,
     Plan,
@@ -236,8 +237,34 @@ async def execute_plan(
     # --- Crash recovery ---
     # Find tasks that were 'running' (from a previous crashed execution)
     # and reset them to 'pending'. Clean up any orphaned worktrees.
+    # Also check for orphaned results files from agents that finished
+    # but whose results weren't incorporated before the scheduler crashed.
+    import os as _os
+    from wflib.runner import _read_agent_results
+
+    sessions_dir = _os.path.join(
+        _os.path.abspath(cwd), record_mod.WORKFLOWS_DIR,
+        ".sessions", record.workflow.name,
+    )
+
     for task_id, result in impl.tasks.items():
         if result.status == TaskStatus.RUNNING:
+            # Check for orphaned results.json before resetting
+            orphaned_results_path = _os.path.join(
+                sessions_dir, f"{task_id}.results.json"
+            )
+            if _os.path.isfile(orphaned_results_path):
+                try:
+                    agent_result = _read_agent_results(orphaned_results_path)
+                    if agent_result.summary:
+                        result.summary = agent_result.summary
+                    if agent_result.notes:
+                        result.notes = agent_result.notes
+                    if agent_result.usage:
+                        result.usage = agent_result.usage
+                except Exception:
+                    pass  # Best-effort incorporation
+
             result.status = TaskStatus.PENDING
             result.started_at = None
             # Clean up orphaned worktree if recorded
@@ -572,6 +599,11 @@ async def execute_fixup(
             task_result.status = TaskStatus.RUNNING
             task_result.started_at = utc_now_iso()
             fixup_impl.tasks[task.id] = task_result
+            fixup_impl.events.append(ImplementationEvent(
+                t=utc_now_iso(),
+                event=ImplementationEventType.TASK_START,
+                task=task.id,
+            ))
             record_mod.save_record(record, cwd)
 
             async_task = asyncio.create_task(
@@ -619,6 +651,11 @@ async def execute_fixup(
             # Store result in fixup implementation
             fixup_impl.tasks[completed_id] = result
             statuses[completed_id] = result.status
+            fixup_impl.events.append(ImplementationEvent(
+                t=utc_now_iso(),
+                event=ImplementationEventType.TASK_COMPLETE,
+                task=completed_id,
+            ))
             record_mod.save_record(record, cwd)
 
             if result.status == TaskStatus.FAILED:
