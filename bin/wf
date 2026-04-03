@@ -1091,12 +1091,20 @@ def _cmd_brainstorm(args):
     except FileNotFoundError:
         system_prompt = "You are a brainstorming assistant. Call record_brainstorm when you have conclusions."
 
+    # Get tool paths — we need record-brainstorm for brainstorm phase
+    tool_paths = profile.get_tool_paths()
+    tools: list[str] = []
+    if "record-brainstorm" in tool_paths:
+        tools.append(tool_paths["record-brainstorm"])
+    else:
+        sys.stderr.write("Warning: record-brainstorm tool not found in profile tool paths\n")
+
     result = spawn_headless(
         cwd=cwd,
         prompt=prompt,
         system_prompt=system_prompt,
         profile=profile,
-        tools=[],
+        tools=tools,
         model=model,
         models_config=config.models,
     )
@@ -1177,12 +1185,20 @@ def _cmd_plan(args):
     except FileNotFoundError:
         system_prompt = "You are a planning assistant. Call submit_plan when your plan is ready."
 
+    # Get tool paths — we need submit-plan for planning phase
+    tool_paths = profile.get_tool_paths()
+    tools: list[str] = []
+    if "submit-plan" in tool_paths:
+        tools.append(tool_paths["submit-plan"])
+    else:
+        sys.stderr.write("Warning: submit-plan tool not found in profile tool paths\n")
+
     result = spawn_headless(
         cwd=cwd,
         prompt=prompt,
         system_prompt=system_prompt,
         profile=profile,
-        tools=[],
+        tools=tools,
         model=model,
         models_config=config.models,
     )
