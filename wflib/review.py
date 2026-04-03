@@ -24,6 +24,20 @@ from wflib._util import load_prompt
 _DIFF_CAP_BYTES = 100 * 1024  # 100KB cap on full diff
 
 
+def _truncate_diff(text: str, max_bytes: int = _DIFF_CAP_BYTES) -> str:
+    """Truncate diff text to at most *max_bytes* of UTF-8.
+
+    Encodes to bytes first so the slice is byte-accurate, then decodes
+    back with ``errors='ignore'`` to drop any partial multi-byte character
+    at the boundary.
+    """
+    encoded = text.encode("utf-8", errors="replace")
+    if len(encoded) <= max_bytes:
+        return text
+    truncated = encoded[:max_bytes].decode("utf-8", errors="ignore")
+    return truncated + "\n\n... (diff truncated at 100KB)"
+
+
 # --- Result dataclasses ---
 
 @dataclass
@@ -71,9 +85,7 @@ def build_diff_context(cwd: str, base_commit: str | None = None) -> str:
             ["diff", base_commit, "HEAD"], cwd=cwd
         )
         if diff_result.ok and diff_result.stdout.strip():
-            diff_text = diff_result.stdout
-            if len(diff_text.encode("utf-8", errors="replace")) > _DIFF_CAP_BYTES:
-                diff_text = diff_text[: _DIFF_CAP_BYTES] + "\n\n... (diff truncated at 100KB)"
+            diff_text = _truncate_diff(diff_result.stdout)
             sections.append(f"## Full diff\n\n```diff\n{diff_text.strip()}\n```")
     else:
         # Fallback: uncommitted changes
@@ -85,9 +97,7 @@ def build_diff_context(cwd: str, base_commit: str | None = None) -> str:
 
         diff_result = gitmod.git(["diff"], cwd=cwd)
         if diff_result.ok and diff_result.stdout.strip():
-            diff_text = diff_result.stdout
-            if len(diff_text.encode("utf-8", errors="replace")) > _DIFF_CAP_BYTES:
-                diff_text = diff_text[: _DIFF_CAP_BYTES] + "\n\n... (diff truncated at 100KB)"
+            diff_text = _truncate_diff(diff_result.stdout)
             sections.append(f"## Full diff (uncommitted)\n\n```diff\n{diff_text.strip()}\n```")
 
         # Also include staged changes
@@ -99,9 +109,7 @@ def build_diff_context(cwd: str, base_commit: str | None = None) -> str:
 
         staged_diff = gitmod.git(["diff", "--cached"], cwd=cwd)
         if staged_diff.ok and staged_diff.stdout.strip():
-            diff_text = staged_diff.stdout
-            if len(diff_text.encode("utf-8", errors="replace")) > _DIFF_CAP_BYTES:
-                diff_text = diff_text[: _DIFF_CAP_BYTES] + "\n\n... (diff truncated at 100KB)"
+            diff_text = _truncate_diff(staged_diff.stdout)
             sections.append(f"## Staged diff\n\n```diff\n{diff_text.strip()}\n```")
 
     if not sections:
