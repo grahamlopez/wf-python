@@ -55,7 +55,6 @@ class TestEnums(unittest.TestCase):
     def test_workflow_status_values(self):
         """WorkflowStatus enum has correct string values."""
         self.assertEqual(WorkflowStatus.INIT.value, "init")
-        self.assertEqual(WorkflowStatus.BRAINSTORMING.value, "brainstorming")
         self.assertEqual(WorkflowStatus.PLANNING.value, "planning")
         self.assertEqual(WorkflowStatus.IMPLEMENTING.value, "implementing")
         self.assertEqual(WorkflowStatus.REVIEWING.value, "reviewing")

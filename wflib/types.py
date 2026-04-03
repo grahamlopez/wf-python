@@ -191,7 +191,6 @@ class ReviewRecord:
 
 class WorkflowStatus(Enum):
     INIT = "init"
-    BRAINSTORMING = "brainstorming"
     PLANNING = "planning"
     IMPLEMENTING = "implementing"
     REVIEWING = "reviewing"

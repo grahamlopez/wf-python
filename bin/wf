@@ -1274,16 +1274,6 @@ def _cmd_run(args):
 
     config = record.workflow.config
 
-    # Phase sequence based on current status
-    phase_order = [
-        WorkflowStatus.INIT,
-        WorkflowStatus.BRAINSTORMING,
-        WorkflowStatus.PLANNING,
-        WorkflowStatus.IMPLEMENTING,
-        WorkflowStatus.REVIEWING,
-        WorkflowStatus.CLOSING,
-    ]
-
     status = record.workflow.status
     if status == WorkflowStatus.DONE:
         print(f"✓ {args.workflow} is already done.")

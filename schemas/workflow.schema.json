@@ -357,7 +357,7 @@
     "WorkflowStatus": {
       "type": "string",
       "description": "Current phase of the workflow.",
-      "enum": ["init", "brainstorming", "planning", "implementing", "reviewing", "closing", "done", "failed"]
+      "enum": ["init", "planning", "implementing", "reviewing", "closing", "done", "failed"]
     },
     "AutomationLevel": {
       "type": "string",
