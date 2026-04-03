@@ -283,78 +283,46 @@ def _build_summary(
     )
 
 
-async def execute_plan(
+async def _run_dag_loop(
+    plan: Plan,
+    impl: ImplementationRecord,
     record: WorkflowRecord,
     cwd: str,
-    cli_overrides: dict | None = None,
+    config: WorkflowConfig,
+    cli_model: str | None,
+    on_record_task_start: Callable[[str], None],
+    on_record_task_complete: Callable[[str, TaskResult], None],
     on_task_start: Callback = None,
     on_task_complete: Callback = None,
     on_state_change: Callback = None,
-) -> ExecutionSummary:
-    """Execute all pending tasks via DAG scheduling.
+) -> None:
+    """Shared DAG scheduling loop for execute_plan and execute_fixup.
 
-    Reads all settings from record.workflow.config (the init-time snapshot).
-    cli_overrides (from command-line flags) are applied on top for this
-    invocation only via config.apply_cli_overrides().
+    Manages task readiness, concurrency pool, and dependency tracking.
+    Delegates per-task execution to task_executor.run_task.
 
-    Pool-based: tasks start as soon as deps complete, up to concurrency limit.
-    When multiple tasks become ready simultaneously, they are started in
-    lexicographic order by task.id (deterministic tie-breaking).
+    Args:
+        plan: The plan whose tasks to execute.
+        impl: The ImplementationRecord to track statuses and events in.
+        record: The WorkflowRecord (used for saving and passed to run_task).
+        cwd: Working directory.
+        config: Effective workflow config (with CLI overrides applied).
+        cli_model: Model override from CLI, or None.
+        on_record_task_start: Called with task_id to persist a task-start
+            transition to the appropriate implementation record.
+        on_record_task_complete: Called with (task_id, result) to persist
+            a task-complete transition to the appropriate implementation record.
+        on_task_start: Optional UI callback when a task starts.
+        on_task_complete: Optional UI callback when a task completes.
+        on_state_change: Optional UI callback on state transitions.
     """
     from wflib import record as record_mod
-    from wflib.config import apply_cli_overrides
-    from wflib.git import get_head_full
-    from wflib.worktree import commit_or_amend_workflow_files
     from wflib.task_executor import run_task
-
-    # Apply CLI overrides to get effective config
-    config = record.workflow.config
-    if cli_overrides:
-        config = apply_cli_overrides(config, **cli_overrides)
-
-    # Get the plan
-    plan = record_mod.get_plan(record)
-    if plan is None:
-        raise RuntimeError("No plan found in record")
-
-    # Ensure implementation record exists
-    if record.implementation is None:
-        record.implementation = ImplementationRecord(
-            tasks={
-                task.id: TaskResult(status=TaskStatus.PENDING)
-                for task in plan.tasks
-            }
-        )
-
-    impl = record.implementation
-
-    # --- Crash recovery ---
-    # Reset any RUNNING tasks from a previous crashed execution.
-    recover_running_tasks(record, cwd)
-
-    # Auto-commit record before starting
-    record_mod.save_record(record, cwd)
-    try:
-        commit_or_amend_workflow_files(cwd, record.workflow.name)
-    except Exception:
-        pass  # Best-effort commit
-
-    # Record base commit and start time
-    base_commit = get_head_full(cwd)
-    record_mod.record_implementation_start(record, base_commit or "")
-    record_mod.save_record(record, cwd)
-
-    start_time = time.monotonic()
-
-    # Resolve cli_model from overrides
-    cli_model = (cli_overrides or {}).get("model_implement")
 
     concurrency = config.execute.concurrency
     merge_lock = asyncio.Lock()
 
-    # --- DAG scheduling loop ---
     running_tasks: dict[str, asyncio.Task] = {}  # task_id -> asyncio.Task
-
     statuses = _build_statuses(impl)
 
     while True:
@@ -371,8 +339,8 @@ async def execute_plan(
             # Mark as running in statuses so we don't re-launch
             statuses[task.id] = TaskStatus.RUNNING
 
-            # Record task start
-            record_mod.record_task_start(record, task.id)
+            # Record task start via caller-provided callback
+            on_record_task_start(task.id)
             record_mod.save_record(record, cwd)
 
             if on_task_start:
@@ -429,8 +397,8 @@ async def execute_plan(
                     error=str(exc),
                 )
 
-            # Record task completion
-            record_mod.record_task_complete(record, completed_id, result)
+            # Record task completion via caller-provided callback
+            on_record_task_complete(completed_id, result)
             statuses[completed_id] = result.status
             record_mod.save_record(record, cwd)
 
@@ -443,15 +411,14 @@ async def execute_plan(
             if result.status == TaskStatus.FAILED:
                 skipped_ids = skip_dependents(plan, statuses, completed_id)
                 if skipped_ids:
-                    # Update the implementation record for skipped tasks
                     for sid in skipped_ids:
                         impl.tasks[sid] = TaskResult(status=TaskStatus.SKIPPED)
-                    record_mod.record_event(
-                        record,
-                        ImplementationEventType.SKIP_DEPENDENTS,
+                    impl.events.append(ImplementationEvent(
+                        t=utc_now_iso(),
+                        event=ImplementationEventType.SKIP_DEPENDENTS,
                         task=completed_id,
                         detail=f"Skipped: {', '.join(skipped_ids)}",
-                    )
+                    ))
                     record_mod.save_record(record, cwd)
 
             # Handle success: reset previously-skipped tasks
@@ -461,6 +428,87 @@ async def execute_plan(
                     for rid in reset_ids:
                         impl.tasks[rid] = TaskResult(status=TaskStatus.PENDING)
                     record_mod.save_record(record, cwd)
+
+
+async def execute_plan(
+    record: WorkflowRecord,
+    cwd: str,
+    cli_overrides: dict | None = None,
+    on_task_start: Callback = None,
+    on_task_complete: Callback = None,
+    on_state_change: Callback = None,
+) -> ExecutionSummary:
+    """Execute all pending tasks via DAG scheduling.
+
+    Reads all settings from record.workflow.config (the init-time snapshot).
+    cli_overrides (from command-line flags) are applied on top for this
+    invocation only via config.apply_cli_overrides().
+
+    Pool-based: tasks start as soon as deps complete, up to concurrency limit.
+    When multiple tasks become ready simultaneously, they are started in
+    lexicographic order by task.id (deterministic tie-breaking).
+    """
+    from wflib import record as record_mod
+    from wflib.config import apply_cli_overrides
+    from wflib.git import get_head_full
+    from wflib.worktree import commit_or_amend_workflow_files
+
+    # Apply CLI overrides to get effective config
+    config = record.workflow.config
+    if cli_overrides:
+        config = apply_cli_overrides(config, **cli_overrides)
+
+    # Get the plan
+    plan = record_mod.get_plan(record)
+    if plan is None:
+        raise RuntimeError("No plan found in record")
+
+    # Ensure implementation record exists
+    if record.implementation is None:
+        record.implementation = ImplementationRecord(
+            tasks={
+                task.id: TaskResult(status=TaskStatus.PENDING)
+                for task in plan.tasks
+            }
+        )
+
+    impl = record.implementation
+
+    # --- Crash recovery ---
+    # Reset any RUNNING tasks from a previous crashed execution.
+    recover_running_tasks(record, cwd)
+
+    # Auto-commit record before starting
+    record_mod.save_record(record, cwd)
+    try:
+        commit_or_amend_workflow_files(cwd, record.workflow.name)
+    except Exception:
+        pass  # Best-effort commit
+
+    # Record base commit and start time
+    base_commit = get_head_full(cwd)
+    record_mod.record_implementation_start(record, base_commit or "")
+    record_mod.save_record(record, cwd)
+
+    start_time = time.monotonic()
+
+    # Resolve cli_model from overrides
+    cli_model = (cli_overrides or {}).get("model_implement")
+
+    # Delegate to shared DAG loop
+    await _run_dag_loop(
+        plan=plan,
+        impl=impl,
+        record=record,
+        cwd=cwd,
+        config=config,
+        cli_model=cli_model,
+        on_record_task_start=lambda task_id: record_mod.record_task_start(record, task_id),
+        on_record_task_complete=lambda task_id, result: record_mod.record_task_complete(record, task_id, result),
+        on_task_start=on_task_start,
+        on_task_complete=on_task_complete,
+        on_state_change=on_state_change,
+    )
 
     # Mark implementation complete
     record_mod.record_implementation_complete(record)
@@ -571,8 +619,9 @@ async def execute_fixup(
 ) -> ExecutionSummary:
     """Execute a fixup plan from a review.
 
-    Same DAG scheduler and same run_task pipeline, but results are stored
-    in review.fixup_implementation instead of record.implementation.
+    Same DAG scheduler (via _run_dag_loop) and same run_task pipeline,
+    but results are stored in review.fixup_implementation instead of
+    record.implementation.
 
     Fixup model precedence:
       1. cli_overrides["fixup_model"] (from --fixup-model CLI flag)
@@ -583,7 +632,6 @@ async def execute_fixup(
     from wflib.config import apply_cli_overrides
     from wflib.git import get_head_full
     from wflib.worktree import commit_or_amend_workflow_files
-    from wflib.task_executor import run_task
 
     if review.fixup_plan is None:
         raise RuntimeError("No fixup plan found in review")
@@ -619,101 +667,32 @@ async def execute_fixup(
 
     start_time = time.monotonic()
 
-    concurrency = config.execute.concurrency
-    merge_lock = asyncio.Lock()
+    # Build recording callbacks that target fixup_impl via record_mod
+    # functions. We temporarily swap record.implementation so the
+    # record_mod helpers write to the fixup impl, then restore it.
+    def _fixup_task_start(task_id: str) -> None:
+        orig = record.implementation
+        record.implementation = fixup_impl
+        record_mod.record_task_start(record, task_id)
+        record.implementation = orig
 
-    # --- DAG scheduling loop (same as execute_plan) ---
-    running_tasks: dict[str, asyncio.Task] = {}
-    statuses = _build_statuses(fixup_impl)
+    def _fixup_task_complete(task_id: str, result: TaskResult) -> None:
+        orig = record.implementation
+        record.implementation = fixup_impl
+        record_mod.record_task_complete(record, task_id, result)
+        record.implementation = orig
 
-    while True:
-        ready = get_ready_tasks(plan, statuses)
-
-        for task in ready:
-            if len(running_tasks) >= concurrency:
-                break
-            if task.id in running_tasks:
-                continue
-
-            statuses[task.id] = TaskStatus.RUNNING
-
-            # Record task start in the fixup implementation
-            task_result = fixup_impl.tasks.get(task.id, TaskResult(status=TaskStatus.PENDING))
-            task_result.status = TaskStatus.RUNNING
-            task_result.started_at = utc_now_iso()
-            fixup_impl.tasks[task.id] = task_result
-            fixup_impl.events.append(ImplementationEvent(
-                t=utc_now_iso(),
-                event=ImplementationEventType.TASK_START,
-                task=task.id,
-            ))
-            record_mod.save_record(record, cwd)
-
-            async_task = asyncio.create_task(
-                run_task(
-                    task=task,
-                    plan=plan,
-                    record=record,
-                    cwd=cwd,
-                    merge_lock=merge_lock,
-                    config=config,
-                    cli_model=fixup_model,
-                )
-            )
-            running_tasks[task.id] = async_task
-
-        if not running_tasks:
-            break
-
-        done_asyncio, _ = await asyncio.wait(
-            running_tasks.values(),
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        for completed_task in done_asyncio:
-            completed_id = None
-            for tid, atask in running_tasks.items():
-                if atask is completed_task:
-                    completed_id = tid
-                    break
-
-            if completed_id is None:
-                continue
-
-            del running_tasks[completed_id]
-
-            try:
-                result = completed_task.result()
-            except Exception as exc:
-                result = TaskResult(
-                    status=TaskStatus.FAILED,
-                    completed_at=utc_now_iso(),
-                    error=str(exc),
-                )
-
-            # Store result in fixup implementation
-            fixup_impl.tasks[completed_id] = result
-            statuses[completed_id] = result.status
-            fixup_impl.events.append(ImplementationEvent(
-                t=utc_now_iso(),
-                event=ImplementationEventType.TASK_COMPLETE,
-                task=completed_id,
-            ))
-            record_mod.save_record(record, cwd)
-
-            if result.status == TaskStatus.FAILED:
-                skipped_ids = skip_dependents(plan, statuses, completed_id)
-                if skipped_ids:
-                    for sid in skipped_ids:
-                        fixup_impl.tasks[sid] = TaskResult(status=TaskStatus.SKIPPED)
-                    record_mod.save_record(record, cwd)
-
-            if result.status == TaskStatus.DONE:
-                reset_ids = reset_ready_skipped(plan, statuses)
-                if reset_ids:
-                    for rid in reset_ids:
-                        fixup_impl.tasks[rid] = TaskResult(status=TaskStatus.PENDING)
-                    record_mod.save_record(record, cwd)
+    # Delegate to shared DAG loop
+    await _run_dag_loop(
+        plan=plan,
+        impl=fixup_impl,
+        record=record,
+        cwd=cwd,
+        config=config,
+        cli_model=fixup_model,
+        on_record_task_start=_fixup_task_start,
+        on_record_task_complete=_fixup_task_complete,
+    )
 
     # Mark fixup implementation complete
     fixup_impl.completed_at = utc_now_iso()
