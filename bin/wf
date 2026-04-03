@@ -31,6 +31,7 @@ Usage:
 
 import argparse
 import asyncio
+import copy
 import json
 import os
 import shutil
@@ -1250,8 +1251,9 @@ def _cmd_run(args):
         if status in (WorkflowStatus.INIT,):
             automation = config.automation.brainstorm
             print(f"[brainstorm] {automation.value}...")
-            args.no_tmux = automation == AutomationLevel.AUTOMATIC or getattr(args, 'no_tmux', False)
-            _cmd_brainstorm(args)
+            brainstorm_args = copy.copy(args)
+            brainstorm_args.no_tmux = automation == AutomationLevel.AUTOMATIC or getattr(args, 'no_tmux', False)
+            _cmd_brainstorm(brainstorm_args)
             record = load_record(args.workflow, cwd)
             status = record.workflow.status
             if status == WorkflowStatus.INIT:
@@ -1261,8 +1263,9 @@ def _cmd_run(args):
         if status in (WorkflowStatus.PLANNING,):
             automation = config.automation.plan
             print(f"[plan] {automation.value}...")
-            args.no_tmux = automation == AutomationLevel.AUTOMATIC or getattr(args, 'no_tmux', False)
-            _cmd_plan(args)
+            plan_args = copy.copy(args)
+            plan_args.no_tmux = automation == AutomationLevel.AUTOMATIC or getattr(args, 'no_tmux', False)
+            _cmd_plan(plan_args)
             record = load_record(args.workflow, cwd)
             status = record.workflow.status
             if status == WorkflowStatus.PLANNING:
