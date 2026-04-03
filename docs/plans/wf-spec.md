@@ -1,6 +1,6 @@
 # `wf` - Complete Project Sketch
 
-External CLI tool for structured AI development workflows - like git for version control or tmux for terminal multiplexing. Every phase of the workflow lifecycle is drivable from a bare terminal. Zero Python dependencies - stdlib only.
+External CLI tool for structured AI development workflows - like git for version control or tmux for terminal multiplexing. Every phase of the workflow lifecycle is drivable from a bare terminal. Single Go binary - minimal external dependencies.
 
 Harness wrappers (pi, Cursor, etc.) provide a richer UX (inline modes, live UI, per-turn usage tracking) but are never required. The CLI is the primary interface; harness integration is a convenience add-on.
 
@@ -16,18 +16,17 @@ The following scope and platform decisions apply to v1. They are referenced thro
 
 **Harnesses:** Pi and mock profiles are fully functional in v1. The Claude Code profile ships as a documented skeleton with `NotImplementedError` on tmux and session parsing methods — a clear extension point, not a gap.
 
-**Platform:** POSIX-only (Linux, macOS). No Windows support. `os.replace` atomicity, git worktree symlinks, tmux, `#!/usr/bin/env python3` shebangs, and bash wrapper scripts all assume POSIX.
+**Platform:** POSIX-only (Linux, macOS). No Windows support. Atomic file rename, git worktree symlinks, tmux, and bash wrapper scripts all assume POSIX.
 
 **External tools:**
 
 | Tool | Required? | Behavior when absent |
 |------|-----------|---------------------|
-| `python3` ≥ 3.12 | **Required** | Hard fail with version check at startup |
 | `git` ≥ 2.20 | **Required** | Hard fail at `wf init` |
 | `tmux` ≥ 3.0 | **Optional** | If `config.ui.tmux` is true but tmux is not found, warn to stderr and fall back to headless mode. Never hard fail on missing tmux. |
 | Agent binary (`pi`, `claude`, etc.) | **Required for its profile** | Hard fail with clear message if the configured profile's binary is not on PATH |
 
-**Error output:** All commands emit `{"error": "<message>"}` JSON to stdout on exit code 1. Exit code 2 (bad arguments) uses argparse-style usage errors on stderr.
+**Error output:** All commands emit `{"error": "<message>"}` JSON to stdout on exit code 1. Exit code 2 (bad arguments) uses standard usage errors on stderr.
 
 **Config validation:** Unknown keys and invalid values in config files are hard errors. `wf init` and `wf config set` refuse to proceed. No forward-compatibility leniency — err on the side of safety and least surprise.
 
@@ -43,317 +42,210 @@ The following scope and platform decisions apply to v1. They are referenced thro
 
 ```
 wf/
-├── bin/
-│   └── wf                            # #!/usr/bin/env python3 - CLI entry point
+├── cmd/
+│   └── wf/
+│       └── main.go                       # CLI entry point
+│
+├── internal/                             # Core library (not importable by external packages)
+│   ├── types/                            # Data types + JSON serialization + message extraction
+│   ├── config/                           # Configuration loading, merging, resolution (TOML)
+│   ├── record/                           # Workflow record file I/O (the central state)
+│   ├── validate/                         # Plan validation (deps, cycles)
+│   ├── brief/                            # Deterministic task brief assembly
+│   ├── scheduler/                        # DAG scheduler (goroutine pool-based)
+│   ├── executor/                         # Per-task lifecycle: worktree → brief → spawn → merge → cleanup
+│   ├── runner/                           # Agent subprocess spawning (profile-driven, headless + tmux)
+│   ├── tmux/                             # Tmux pane/window management
+│   ├── git/                              # Git wrapper
+│   ├── worktree/                         # Worktree create / setup / merge / cleanup
+│   ├── review/                           # Diff context building + review orchestration
+│   ├── render/                           # Markdown + usage table + status rendering
+│   ├── templates/                        # Template discovery, loading, rendering
+│   ├── completions/                      # Shell completion script generation + dynamic completion callback
+│   ├── help/                             # Agent-friendly reference system
+│   └── log/                              # Debug logging
+│
+├── profiles/                             # Runner profiles (one per harness: pi, claude-code, mock)
+│   ├── profile.go                        # RunnerProfile interface + registry
+│   ├── pi.go                             # Pi runner profile (default)
+│   ├── claudecode.go                     # Claude Code runner profile
+│   └── mock.go                           # Mock profile for E2E tests
+│
+├── adapters/                             # Output format parsers (shared across profiles)
+│   ├── pijsonmode.go                     # Parser: pi --mode json stdout → results
+│   ├── pisession.go                      # Parser: pi session .jsonl → results
+│   └── claudestreamjson.go               # Parser: claude --output-format stream-json → results
 │
 ├── schemas/
-│   └── workflow.schema.json           # Single JSON Schema - full record + $defs for Plan, Brainstorm, Task, etc.
+│   └── workflow.schema.json              # Single JSON Schema - full record + $defs for Plan, Brainstorm, Task, etc.
 │
 ├── prompts/
-│   ├── brainstorm.md                 # System prompt for brainstorm phase
-│   ├── planning-context.md           # Injected when agent enters planning mode
-│   ├── implementer.md                # System prompt for implementation subagents
-│   ├── reviewer.md                   # System prompt for code review subagents
-│   ├── reviewer-with-plan.md         # System prompt for auto-review (review + submit_plan)
-│   └── merge-resolver.md             # System prompt for conflict resolution agents
+│   ├── brainstorm.md                     # System prompt for brainstorm phase
+│   ├── planning-context.md               # Injected when agent enters planning mode
+│   ├── implementer.md                    # System prompt for implementation subagents
+│   ├── reviewer.md                       # System prompt for code review subagents
+│   ├── reviewer-with-plan.md             # System prompt for auto-review (review + submit_plan)
+│   └── merge-resolver.md                 # System prompt for conflict resolution agents
 │
 ├── templates/
-│   ├── brainstorm.md                 # Reusable: iterative brainstorming with pros/cons
-│   ├── check-implementation.md       # Reusable: quality check recent work
-│   ├── execute-plan-step.md          # Reusable: implement a single plan step
-│   └── write-plan-to-file.md         # Reusable: write plan to docs/plans/
-│
-├── profiles/
-│   ├── __init__.py                    # Profile interface (RunnerProfile protocol) + registry
-│   ├── pi.py                         # Pi runner profile (default)
-│   ├── claude_code.py                # Claude Code runner profile
-│   └── mock.py                       # Mock profile for E2E tests
-│
-├── adapters/
-│   ├── __init__.py
-│   ├── pi_json_mode.py               # Parser: pi --mode json stdout → results dict
-│   ├── pi_session.py                 # Parser: pi session .jsonl → results dict
-│   └── claude_stream_json.py         # Parser: claude --output-format stream-json → results dict
+│   ├── brainstorm.md                     # Reusable: iterative brainstorming with pros/cons
+│   ├── check-implementation.md           # Reusable: quality check recent work
+│   ├── execute-plan-step.md              # Reusable: implement a single plan step
+│   └── write-plan-to-file.md             # Reusable: write plan to docs/plans/
 │
 ├── tools/
-│   ├── mcp_server.py                 # MCP server exposing report_result, submit_plan, record_brainstorm
-│   │                                 #   (for Claude Code and other MCP-based harnesses)
-│   └── pi_extensions/                # Pi-native tool extensions (TypeScript)
+│   ├── mcpserver/                        # MCP server exposing report_result, submit_plan, record_brainstorm
+│   │   └── main.go                       #   (for Claude Code and other MCP-based harnesses)
+│   └── pi_extensions/                    # Pi-native tool extensions (TypeScript)
 │       ├── report-result-tool.ts
 │       ├── submit-plan-tool.ts
 │       └── record-brainstorm-tool.ts
 │
-├── wflib/
-│   ├── __init__.py
-│   ├── types.py                      # Data classes + JSON schema validation + message extraction
-│   ├── config.py                     # Configuration loading, merging, resolution (TOML)
-│   ├── record.py                     # Workflow record file I/O (the central state)
-│   ├── validate.py                   # Plan validation (deps, cycles)
-│   ├── brief.py                      # Deterministic task brief assembly
-│   ├── scheduler.py                  # DAG scheduler (asyncio, pool-based)
-│   ├── task_executor.py              # Per-task lifecycle: worktree → brief → spawn → merge → cleanup
-│   ├── runner.py                     # Agent subprocess spawning (profile-driven, headless + tmux)
-│   ├── tmux.py                       # Tmux pane/window management
-│   ├── git.py                        # Git wrapper
-│   ├── worktree.py                   # Worktree create / setup / merge / cleanup
-│   ├── review.py                     # Diff context building + review orchestration
-│   ├── render.py                     # Markdown + usage table + status rendering
-│   ├── templates.py                  # Template discovery, loading, rendering
-│   ├── completions.py                # Shell completion script generation + dynamic completion callback
-│   └── log.py                        # Debug logging
+├── testdata/                             # Shared test fixtures
+│   └── e2e/
+│       └── fixtures/
+│           ├── simple-split/
+│           ├── linear-chain/
+│           ├── diamond-deps/
+│           ├── task-failure/
+│           ├── merge-conflict/
+│           ├── merge-conflict-unresolvable/
+│           ├── review-fixup/
+│           ├── crash-recovery/
+│           └── full-lifecycle/
 │
-├── tests/
-│   ├── unit/
-│   │   ├── test_types.py
-│   │   ├── test_config.py
-│   │   ├── test_validate.py
-│   │   ├── test_brief.py
-│   │   ├── test_render.py
-│   │   ├── test_templates.py
-│   │   ├── test_completions.py
-│   │   ├── test_profiles.py
-│   │   └── test_help.py
-│   ├── integration/
-│   │   ├── test_record.py
-│   │   ├── test_worktree.py
-│   │   ├── test_git.py
-│   │   └── test_tmux.py
-│   ├── e2e/
-│   │   ├── mock_agent.py
-│   │   ├── conftest.py
-│   │   ├── test_happy_path.py
-│   │   ├── test_failures.py
-│   │   ├── test_recovery.py
-│   │   ├── test_review.py
-│   │   └── fixtures/
-│   │       ├── simple-split/
-│   │       ├── linear-chain/
-│   │       ├── diamond-deps/
-│   │       ├── task-failure/
-│   │       ├── merge-conflict/
-│   │       ├── merge-conflict-unresolvable/
-│   │       ├── review-fixup/
-│   │       ├── crash-recovery/
-│   │       └── full-lifecycle/
-│   ├── profile/
-│   │   ├── test_pi_profile.py
-│   │   └── test_claude_code_profile.py
-│   └── adapter/
-│       ├── test_pi_json_mode.py
-│       ├── test_pi_session.py
-│       └── test_claude_stream_json.py
-│
+├── go.mod
+├── go.sum
 └── README.md
 ```
+
+Tests live alongside the code they test (Go convention): `internal/scheduler/scheduler_test.go`, `internal/record/record_test.go`, `profiles/pi_test.go`, etc. E2E tests live in a top-level `e2e_test.go` or `internal/e2e/` package.
 
 ---
 
 ## Technology Choices & Dependencies
 
-### Why Python
+### Why Go
 
-The `wf` codebase is ~2500 lines of glue: dataclasses, JSON I/O, subprocess orchestration, DAG scheduling, git/tmux wrappers, and text rendering. Python's stdlib covers every one of these with purpose-built modules. There is no compile step, no bundler, no runtime to manage - `#!/usr/bin/env python3` and it runs. Requires Python 3.12+.
+`wf` is a CLI tool (~3000 lines of core logic) doing subprocess orchestration, JSON I/O, DAG scheduling, git/tmux wrappers, and text rendering. Go is the right fit because:
 
-The pi wrapper extension remains TypeScript (it's a pi extension, it has to be). The two-language split is clean: Python owns all workflow logic, TypeScript owns only harness-specific UI/events.
+- **Single binary distribution.** `go build` produces one binary. No runtime, no interpreter, no PATH issues. `go install github.com/.../wf@latest` and it works.
+- **Compiler as guardrail.** This project is developed 100% by AI agents. Go's type system catches structural errors at compile time — wrong types, missing interface methods, unhandled cases — that would only surface at runtime in a dynamic language. For a codebase with no human reviewers, this is a structural safety net.
+- **Native concurrency.** The DAG scheduler runs concurrent tasks with serialized merge-back. Goroutines, `sync.Mutex`, and `sync.WaitGroup` are first-class language features, not a library bolted onto a synchronous runtime.
+- **`gofmt` enforces consistency.** Every AI-generated commit looks the same. No style drift across hundreds of agent sessions.
+- **Struct tags solve JSON mapping natively.** All JSON uses camelCase; Go structs use PascalCase. Struct tags (`json:"dependsOn"`) handle this at zero cost — no custom serialization machinery needed.
 
-### Zero External Dependencies
+The pi wrapper extension remains TypeScript (it's a pi extension, it has to be). The two-language split is clean: Go owns all workflow logic, TypeScript owns only harness-specific UI/events.
 
-**`wf` uses only Python stdlib. No pip install, no venv, no vendored packages.**
+### External Dependencies
 
-Every need maps to a stdlib module:
+`wf` uses Go's stdlib for nearly everything. The minimal external dependencies:
 
-| Need | Stdlib module | Notes |
-|------|--------------|-------|
-| DAG scheduling | `graphlib.TopologicalSorter` (3.9+) | Incremental parallel mode: `prepare()` → `get_ready()` → `done()` → `get_ready()`. Exactly the pool-based scheduler this sketch describes. `skip_dependents` / `reset_ready_skipped` still need manual implementation (TopologicalSorter doesn't handle failure propagation), but core readiness tracking is built in. |
-| Async subprocess | `asyncio.create_subprocess_exec` | Full stdout/stderr capture, concurrent spawning, `asyncio.wait_for()` for timeouts. Sufficient for managing tmux + headless agent processes. |
-| Data types | `dataclasses` | Maps 1:1 to every type in `types.py`. Optional fields, defaults, `field(default_factory=...)` for mutable defaults. |
-| JSON I/O | `json` | Record file read/write, schema extraction, CLI output. |
-| CLI | `argparse` | Subcommands, flags, help text. Covers the full `wf` CLI surface. |
-| Enums | `enum.Enum` | `TaskStatus`, `WorkflowStatus`, `AutomationLevel`. |
-| Path handling | `pathlib` | Cleaner than the TS `path.resolve`/`path.relative` equivalents. |
-| Subprocess (sync) | `subprocess` | Git and tmux commands via `subprocess.run()`. |
-| Temp files | `tempfile` | Wrapper scripts, agent prompt files, atomic writes. |
-| Atomic writes | `tempfile` + `os.replace` | Write to `NamedTemporaryFile`, `os.replace()` is atomic on POSIX. |
-| Config parsing | `tomllib` (3.11+) | TOML config file reading. Read-only (users edit config files directly or via `wf config set`). |
-| Regex | `re` | Summary fallback extraction, frontmatter parsing. |
+| Need | Package | Notes |
+|------|---------|-------|
+| TOML config parsing | `github.com/BurntSushi/toml` | Well-maintained, zero transitive deps. Config files are TOML. |
+| CLI subcommands | Evaluate: stdlib `flag` vs `github.com/spf13/cobra` | stdlib `flag` is sufficient if subcommand dispatch is hand-written (~100 lines). Cobra adds convenience but is a larger dependency. Decide during implementation. |
 
-### Why Not `jsonschema`
+Everything else maps to Go stdlib:
 
-The `jsonschema` package (Python's main JSON Schema validator) pulls in 4 transitive deps: `attrs`, `jsonschema-specifications`, `referencing`, and `rpds-py`. The last one is a compiled Rust extension - unvendorable, platform-specific, kills the zero-dep story.
+| Need | Go stdlib |
+|------|----------|
+| JSON I/O | `encoding/json` (struct tags handle camelCase natively) |
+| Subprocess | `os/exec` |
+| Concurrency | goroutines, `sync.Mutex`, `sync.WaitGroup`, channels |
+| DAG scheduling | Implement topological sort (~40 lines) + pool-based goroutine scheduler |
+| File I/O, paths | `os`, `path/filepath` |
+| Atomic writes | Write to temp file + `os.Rename` (atomic on POSIX) |
+| Temp files | `os.CreateTemp` |
+| Regex | `regexp` |
+| Testing | `testing` (table-driven tests are idiomatic) |
+| Enums | `type TaskStatus string` with const block |
 
-But we don't need it. The JSON Schema files in `schemas/` serve **two distinct purposes**, and neither requires a validation library:
+### JSON Schema vs Runtime Validation
 
-1. **Tool registration contracts** - `wf schema --component plan` outputs `$defs/Plan` for harness wrappers to register tools. This is JSON file reading + `$ref` inlining: pure dict manipulation, ~40 lines.
+The JSON Schema files in `schemas/` serve **two distinct purposes**, and neither requires a validation library:
 
-2. **Runtime input validation** - when `wf submit-plan` receives JSON from stdin, the dataclass constructors ARE the validation. `Plan.from_dict(data)` either succeeds or raises with a clear error. A thin validation layer (~80-100 lines in `types.py`) checks required keys exist, values have the right types, and arrays meet minimum lengths before construction, producing good error messages.
+1. **Tool registration contracts** — `wf schema --component plan` outputs `$defs/Plan` for harness wrappers to register tools. This is JSON file reading + `$ref` inlining: pure map manipulation.
 
-This is the better design anyway: the dataclasses are the runtime source of truth (they do validation, construction, serialization), and the JSON Schema file is the published contract for external consumers (tool registration, harness wrappers). Both are hand-maintained to describe the same structures. Drift risk is low because the schema is small and stable, and the E2E tests exercise the full round-trip (tool call → schema validation → dataclass construction → record file → schema-compliant output). No divergence risk between a schema file and a separate validation library's interpretation of it.
+2. **Runtime input validation** — when `wf submit-plan` receives JSON from stdin, `json.Unmarshal` into typed Go structs IS the validation. The struct definitions are the runtime source of truth. A thin validation layer checks business rules (required fields non-empty, arrays meet minimum lengths) after unmarshaling.
+
+The Go structs are the runtime source of truth (they do validation, construction, serialization via struct tags), and the JSON Schema file is the published contract for external consumers (tool registration, harness wrappers). Both are hand-maintained to describe the same structures. Drift risk is low because the schema is small and stable, and the E2E tests exercise the full round-trip.
 
 ### Why TOML for Configuration
 
-Configuration files (`~/.config/wf/config.toml`, `.wf/config.toml`) use TOML. Python 3.11+ includes `tomllib` in stdlib (read-only), so this adds zero external dependencies. TOML is the right fit because:
+Configuration files (`~/.config/wf/config.toml`, `.wf/config.toml`) use TOML:
 
-- **Human-editable** - config files are primarily hand-edited. TOML is cleaner than JSON (comments, no trailing comma issues, no quoting keys). INI can't represent the nested structure needed for per-phase settings.
-- **Read-only is sufficient** - `tomllib` only reads TOML, but that's all we need. Users edit config files directly (or `wf config set` does targeted string manipulation on simple `key = value` lines). The record file stores the resolved snapshot as JSON - no TOML writing needed.
-- **Proven pattern** - `pyproject.toml` established TOML as Python's config format. Users expect it.
+- **Human-editable** — config files are primarily hand-edited. TOML is cleaner than JSON (comments, no trailing comma issues, no quoting keys). INI can't represent the nested structure needed for per-phase settings.
+- **Established pattern** — TOML is widely used for configuration across ecosystems.
 
-The alternative would be JSON config files (fully stdlib), but JSON without comments is hostile for config that users are meant to customize. TOML with `tomllib` is the better tradeoff.
+The alternative would be JSON config files (fully stdlib), but JSON without comments is hostile for config that users are meant to customize.
 
-For `wf config set`, writing is simple string manipulation - find the `[section]` header, find or append the `key = value` line. The config structure is flat within sections (no nested tables, no arrays of tables), so this is ~30 lines of code, not a TOML serializer.
+For `wf config set`, writing is simple string manipulation — find the `[section]` header, find or append the `key = value` line. The config structure is flat within sections (no nested tables, no arrays of tables), so this is straightforward, not a TOML serializer.
 
-### Why Not PyYAML
+### Template Frontmatter
 
-Template frontmatter is trivially simple - just `key: value` pairs between `---` delimiters:
-
-```yaml
----
-description: Quality check a recent implementation
----
-```
-
-No nested YAML, no lists, no anchors. ~10 lines of string splitting in `templates.py`:
-
-```python
-def parse_frontmatter(content: str) -> tuple[dict, str]:
-    if not content.startswith('---\n'):
-        return {}, content
-    end = content.find('\n---\n', 4)
-    if end == -1:
-        return {}, content
-    meta = {}
-    for line in content[4:end].split('\n'):
-        k, _, v = line.partition(':')
-        if v:
-            meta[k.strip()] = v.strip()
-    return meta, content[end + 5:]
-```
-
-A YAML library would be pure overhead for this.
-
-### How `graphlib.TopologicalSorter` Maps to the Scheduler
-
-The current TS scheduler implements pool-based DAG execution with manual readiness tracking (`getReadyTasks`, `skipDependents`, `resetReadySkipped`). Python's stdlib `TopologicalSorter` handles the core scheduling natively:
-
-```python
-from graphlib import TopologicalSorter
-
-# Build graph: node -> set of predecessors
-graph = {t.id: set(t.depends_on) for t in plan.tasks}
-ts = TopologicalSorter(graph)
-ts.prepare()
-
-while ts.is_active():
-    for task_id in ts.get_ready():       # returns newly-unblocked tasks
-        # spawn up to concurrency limit
-        ...
-    # when a task completes:
-    ts.done(completed_task_id)            # unlocks dependents automatically
-```
-
-The failure-handling logic (`skip_dependents` with transitive BFS closure, `reset_ready_skipped` iterating until stable) still needs manual implementation - `TopologicalSorter` doesn't model failure. But the happy-path scheduling ("which tasks are ready given what's done") is one stdlib call.
+Template frontmatter is trivially simple — just `key: value` pairs between `---` delimiters. No YAML library needed; ~15 lines of string splitting handles it.
 
 ### Install Flow
 
 ```
-wf/
-├── bin/wf              # #!/usr/bin/env python3 - CLI entry point
-├── wflib/              # the library (pure Python, stdlib only)
-├── profiles/           # runner profiles (one per harness: pi, claude-code, mock)
-├── adapters/           # output format parsers (shared across profiles)
-├── tools/              # subagent tool implementations (MCP server + pi extensions)
-├── schemas/            # JSON Schema files (read-only contracts)
-├── prompts/            # system prompts (markdown)
-└── templates/          # shipped default templates (markdown)
+go install github.com/<owner>/wf/cmd/wf@latest
 ```
 
-Install: clone/copy the `wf/` directory + symlink `bin/wf` onto `$PATH`. No `pip install`, no `venv`, no `setup.py`, no `pyproject.toml`. The `#!/usr/bin/env python3` shebang finds Python 3.12+.
+Single binary. Prompts, templates, and schemas are embedded in the binary via `go:embed`. No separate file installation step.
+
+Alternatively, clone and `go build ./cmd/wf/`.
 
 ### What Lives Where
 
-All workflow logic in the `wf/` repository works without pi, Cursor, or any specific agent harness installed. The CLI drives the full lifecycle: `wf init` → `wf brainstorm` → `wf plan` → `wf execute` → `wf review` → `wf close`.
+All workflow logic in the `wf` repository works without pi, Cursor, or any specific agent harness installed. The CLI drives the full lifecycle: `wf init` → `wf brainstorm` → `wf plan` → `wf execute` → `wf review` → `wf close`.
 
 Harness-specific wrapper code lives where each harness expects it - maintained in-place, not tracked in the `wf` repo. For pi, that's `~/.pi/agent/extensions/wf/`. For Cursor, it would be wherever Cursor loads custom tool configs. Each wrapper is a small amount of glue code (~300 lines for pi) that calls the `wf` CLI and reads record files.
 
 | Artifact | Lives in `wf/` repo | Lives in harness location |
 |----------|---------------------|---------------------------|
-| CLI (`bin/wf`) | ✓ | |
-| Core library (`wflib/`) | ✓ | |
+| CLI binary (`wf`) | ✓ | |
+| Core library (`internal/`) | ✓ | |
 | Runner profiles (`profiles/`) | ✓ | |
 | Output adapters (`adapters/`) | ✓ | |
 | Subagent tools (`tools/`) | ✓ (MCP server + pi extensions) | |
-| JSON Schema (`schemas/`) | ✓ | |
-| System prompts (`prompts/`) | ✓ | |
-| Templates (`templates/`) | ✓ | |
+| JSON Schema (`schemas/`) | ✓ (embedded via `go:embed`) | |
+| System prompts (`prompts/`) | ✓ (embedded via `go:embed`) | |
+| Templates (`templates/`) | ✓ (embedded via `go:embed`) | |
 | Pi wrapper extension (`index.ts`) | | `~/.pi/agent/extensions/wf/` |
 | Cursor wrapper | | wherever Cursor expects it |
 
-**Runner profiles, adapters, and tools are the designated harness-specific zones within the core `wf` repo.** Each profile (`profiles/pi.py`, `profiles/claude_code.py`) encodes everything needed to drive one agent harness: command construction, output format selection, and tool loading mechanism. Adapters (`adapters/`) are pure output parsers - shared across profiles where formats overlap. Tools (`tools/`) provide the subagent-side implementations: pi extensions (TypeScript, loaded via `-e`) and an MCP server (Python, for Claude Code and other MCP-based harnesses). All three ship with `wf` because the runner needs them at execution time.
+**Runner profiles, adapters, and tools are the designated harness-specific zones within the core `wf` repo.** Each profile (`profiles/pi.go`, `profiles/claudecode.go`) encodes everything needed to drive one agent harness: command construction, output format selection, and tool loading mechanism. Adapters (`adapters/`) are pure output parsers - shared across profiles where formats overlap. Tools (`tools/`) provide the subagent-side implementations: pi extensions (TypeScript, loaded via `-e`) and an MCP server (Go, for Claude Code and other MCP-based harnesses). All three ship with `wf` because the runner needs them at execution time.
 
 **The only harness-specific code that lives outside the `wf` repo** is each harness's UI wrapper. For pi, that's `~/.pi/agent/extensions/wf/index.ts` - commands, event hooks, status bar, widget, autocompletions, **and tool handlers for inline sessions**. This is still UI glue (no workflow logic, no subprocess management): the tool handlers simply pipe `submit_plan` / `record_brainstorm` tool calls to the `wf` CLI and return its response. All validation and record writes remain in the CLI. For another harness, the equivalent code would live wherever that harness expects custom integrations.
 
-The `wf` repo is "harness-agnostic" in the sense that all workflow logic (scheduling, worktrees, merging, record management, brief assembly, validation, rendering) has zero harness knowledge. The runner calls `profile.build_headless_cmd()` and `profile.parse_headless_output()` - it never imports pi-specific or claude-specific code directly. Adding a new harness means adding one profile file, one adapter (if the output format is new), and one tool loading mechanism (if neither pi extensions nor MCP fit).
+The `wf` repo is "harness-agnostic" in the sense that all workflow logic (scheduling, worktrees, merging, record management, brief assembly, validation, rendering) has zero harness knowledge. The runner calls `profile.BuildHeadlessCmd()` and `profile.ParseHeadlessOutput()` - it never imports pi-specific or claude-specific code directly. Adding a new harness means adding one profile file, one adapter (if the output format is new), and one tool loading mechanism (if neither pi extensions nor MCP fit).
 
 ### Testing
 
-Tests use `unittest` (stdlib). Run with `python3 -m pytest tests/` if pytest is available, or `python3 -m unittest discover tests/` with zero deps. No external test dependencies.
+Tests use Go's `testing` package. Run with `go test ./...`. No external test dependencies.
 
 Three tiers: unit tests for pure functions, integration tests for git/filesystem operations, and end-to-end tests that run full workflows against mini fake projects using a mock agent. The E2E tier is the most important - it's where scheduling, state transitions, merging, recovery, and the review cycle get tested as a system.
 
+Tests live alongside the code they test (Go convention): `internal/scheduler/scheduler_test.go`, `profiles/pi_test.go`, etc.
+
 #### Test Structure
 
-```
-tests/
-├── unit/                    # Pure function tests - no I/O, no subprocess
-│   ├── test_types.py        # Dataclass construction, serialization, extract_tool_call
-│   ├── test_config.py       # Config loading, merging, resolution, precedence chain
-│   ├── test_validate.py     # Dep refs, cycle detection
-│   ├── test_brief.py        # Brief assembly from plan + results
-│   ├── test_render.py       # Markdown rendering, usage tables, status formatting
-│   ├── test_templates.py    # Frontmatter parsing, variable substitution, discovery
-│   ├── test_completions.py  # Generated script content, dynamic completion output
-│   ├── test_profiles.py     # Profile interface compliance, command construction, model resolution, tool paths
-│   └── test_help.py         # Help topic lookup, prefix matching, content checks
-│
-├── integration/             # Tests that touch git and filesystem, but not agents
-│   ├── test_record.py       # Create, load, save, atomic writes, phase transitions
-│   ├── test_worktree.py     # Create, symlink, commit, merge-back, cleanup
-│   └── test_git.py          # Wrapper sanity: is_clean, get_branch, get_head
-│
-├── e2e/                     # Full workflow tests with mock agent
-│   ├── mock_agent.py        # Deterministic agent binary (see below)
-│   ├── conftest.py          # Fixtures: project setup, mock-agent on PATH
-│   ├── test_happy_path.py   # Simple split, linear chain, diamond deps, full lifecycle
-│   ├── test_failures.py     # Task failure + skip, merge conflict + auto-resolution, worktree preserved
-│   ├── test_recovery.py     # Crash recovery, resume midway
-│   ├── test_review.py       # Auto-review with fixup plan, review with no issues
-│   └── fixtures/            # Mini fake projects (see below)
-│       ├── simple-split/
-│       ├── linear-chain/
-│       ├── diamond-deps/
-│       ├── task-failure/
-│       ├── merge-conflict/
-│       ├── merge-conflict-unresolvable/
-│       ├── review-fixup/
-│       ├── crash-recovery/
-│       └── full-lifecycle/
-│
-├── profile/                 # Profile integration tests with recorded harness output
-│   ├── test_pi_profile.py   # Command construction + recorded output through pi adapters
-│   └── test_claude_code_profile.py  # Command construction + recorded output through claude adapter
-│
-└── adapter/                 # Adapter unit tests with recorded output fixtures
-    ├── test_pi_json_mode.py # Feed recorded pi --mode json stdout, verify results dict
-    ├── test_pi_session.py   # Feed recorded session .jsonl, verify results dict
-    └── test_claude_stream_json.py  # Feed recorded stream-json output, verify results dict
-```
+Tests live alongside their packages (Go convention). The logical organization:
+
+- **Unit tests** (pure function tests, no I/O, no subprocess): `internal/types/types_test.go`, `internal/config/config_test.go`, `internal/validate/validate_test.go`, `internal/brief/brief_test.go`, `internal/render/render_test.go`, `internal/templates/templates_test.go`, `internal/completions/completions_test.go`, `profiles/profiles_test.go`, `internal/help/help_test.go`
+- **Integration tests** (touch git and filesystem, but not agents): `internal/record/record_test.go`, `internal/worktree/worktree_test.go`, `internal/git/git_test.go`
+- **E2E tests** (full workflow with mock agent): `e2e_test.go` or `internal/e2e/` package. Uses fixtures from `testdata/e2e/fixtures/`.
+- **Profile tests** (command construction + recorded output through adapters): `profiles/pi_test.go`, `profiles/claudecode_test.go`
+- **Adapter tests** (recorded output fixtures): `adapters/pijsonmode_test.go`, `adapters/pisession_test.go`, `adapters/claudestreamjson_test.go`
 
 #### Unit Tests
 
-The pure-function modules (`validate.py`, `brief.py`, `types.py`, `config.py`, `render.py`, `templates.py`, `completions.py`, `help.py`) are straightforward to test - data in, data out, no mocking needed. These tests run in milliseconds and catch regressions in plan validation, brief content, tool call extraction, and rendering.
+The pure-function packages (`validate`, `brief`, `types`, `config`, `render`, `templates`, `completions`, `help`) are straightforward to test - data in, data out, no mocking needed. Table-driven tests are idiomatic Go. These tests run in milliseconds and catch regressions in plan validation, brief content, tool call extraction, and rendering.
 
 #### Integration Tests
 
-The git/filesystem modules (`record.py`, `worktree.py`, `git.py`) need real git repos. Each test creates a temporary repo in `tmp_path`, runs operations, and asserts on git state (branches, commits, file contents, working tree cleanliness). These tests use real git but no agent subprocesses.
+The git/filesystem packages (`record`, `worktree`, `git`) need real git repos. Each test creates a temporary repo in `t.TempDir()`, runs operations, and asserts on git state (branches, commits, file contents, working tree cleanliness). These tests use real git but no agent subprocesses.
 
 Key scenarios for worktree integration tests: create + merge-back with clean rebase, merge-back with conflict (verify `MergeResult.conflicts` populated and `resolution_attempted` / `resolution_succeeded` fields set), commit exclusion of `docs/workflows/` directory, `.worktree-setup` hook execution, symlink creation for `node_modules`/`.venv`/etc.
 
@@ -371,7 +263,9 @@ The E2E tier runs full `wf` CLI workflows against mini fake projects. The critic
 
 ##### The Mock Agent
 
-A Python script that reads a scenario file (via `WF_TEST_SCENARIO` env var), matches the current task from the prompt/brief content, executes scripted file operations, and writes `results.json` in the location `wf` expects.
+A small program that reads a scenario file (via `WF_TEST_SCENARIO` env var), matches the current task from the prompt/brief content, executes scripted file operations, and writes `results.json` in the location `wf` expects. This can be built as a Go binary in `cmd/mock-agent/` or as a simple script in any language.
+
+> *The code sample below is from the original Python prototype. It illustrates the behavioral contract, not the target implementation. Implement idiomatically in Go (e.g. as a `cmd/mock-agent/main.go` compiled alongside the main binary).*
 
 ```python
 #!/usr/bin/env python3
@@ -426,7 +320,7 @@ with open(results_path, "w") as f:
 sys.exit(1)
 ```
 
-The mock operates at the `results.json` level, not the agent CLI level. It does not need to emulate pi's `--mode json` output, session files, or flag conventions - those are the profile's and adapter's concern, tested separately in `tests/profile/` and `tests/adapter/`. The mock profile (`profiles/mock.py`) wraps this script and presents it through the standard `RunnerProfile` interface, so the runner and scheduler are completely unaware they're running against a mock. This keeps E2E tests focused on workflow engine correctness.
+The mock operates at the `results.json` level, not the agent CLI level. It does not need to emulate pi's `--mode json` output, session files, or flag conventions - those are the profile's and adapter's concern, tested separately in profile and adapter test files. The mock profile (`profiles/mock.go`) wraps this binary and presents it through the standard `RunnerProfile` interface, so the runner and scheduler are completely unaware they're running against a mock. This keeps E2E tests focused on workflow engine correctness.
 
 ##### Mini Fake Projects (Fixtures)
 
@@ -445,10 +339,10 @@ fixtures/simple-split/
     └── git.json             # Expected branch state, commit count, commit messages
 ```
 
-The `conftest.py` fixture sets up each test:
+The test helper sets up each test:
 1. Copy `repo/` to a temp directory
 2. `git init` + `git add -A` + `git commit`
-3. Make `mock_agent.py` executable and set env vars
+3. Put the mock agent binary on PATH and set env vars
 4. Return the project path
 
 The test function then drives the CLI:
@@ -479,7 +373,7 @@ The test function then drives the CLI:
 
 ##### Fixture Design Principles
 
-Keep projects minimal - a fixture's `repo/` should have just enough files to exercise the scenario. A 3-file Python project is plenty. The point is testing `wf`'s orchestration, not compiling real software.
+Keep projects minimal - a fixture's `repo/` should have just enough files to exercise the scenario. A 3-file project is plenty. The point is testing `wf`'s orchestration, not compiling real software.
 
 Keep plans small - 2-5 tasks per fixture. Enough to test the scheduling pattern, not so many that the scenario is hard to reason about.
 
@@ -488,6 +382,8 @@ Make scenario.json self-documenting - each entry's `match` string ties it to a s
 Assertions check the record file and git state, not intermediate artifacts. The record file captures the complete workflow history; git captures the actual code changes. Between the two, every observable outcome is covered.
 
 ##### E2E Test Example
+
+> *The code sample below is from the original Python prototype. It illustrates the test pattern and assertions, not the target implementation. Implement as idiomatic Go table-driven tests.*
 
 ```python
 def test_diamond_deps(project_from_fixture):
@@ -525,7 +421,7 @@ def test_diamond_deps(project_from_fixture):
 
 #### Profile Tests
 
-Each runner profile is tested for **interface compliance and command construction**. Unit tests in `tests/unit/test_profiles.py` verify that every profile:
+Each runner profile is tested for **interface compliance and command construction**. Unit tests in the profiles package verify that every profile:
 
 - Implements the full `RunnerProfile` protocol
 - Produces correct CLI argument lists for headless and tmux modes (`build_headless_cmd`, `build_tmux_wrapper`)
@@ -536,17 +432,17 @@ Each runner profile is tested for **interface compliance and command constructio
 
 These are pure-function tests - they assert on the returned command lists, paths, and model strings without spawning any processes. They catch regressions like a missing flag, a wrong extension path, or a model name that resolves to the wrong harness identifier.
 
-Integration tests in `tests/profile/` go further: feed recorded real output through the profile's adapter and verify the extracted `results.json` matches expectations. For example, `test_pi_profile.py` captures actual pi `--mode json` stdout and session `.jsonl` files from real runs, commits them as fixtures, and verifies the pi profile's adapter produces correct results. `test_claude_code_profile.py` does the same with recorded `--output-format stream-json` output.
+Integration tests in the profile test files go further: feed recorded real output through the profile's adapter and verify the extracted results match expectations. For example, `profiles/pi_test.go` captures actual pi `--mode json` stdout and session `.jsonl` files from real runs, commits them as testdata fixtures, and verifies the pi profile's adapter produces correct results. `profiles/claudecode_test.go` does the same with recorded `--output-format stream-json` output.
 
-These tests are isolated from the E2E tier. If a harness's output format changes, only the profile, its adapter, and their tests need updating - nothing in `wflib/` is affected.
+These tests are isolated from the E2E tier. If a harness's output format changes, only the profile, its adapter, and their tests need updating - nothing in `internal/` is affected.
 
 #### Adapter Tests
 
-The output adapters (`adapters/pi_json_mode.py`, `adapters/pi_session.py`, `adapters/claude_stream_json.py`) are also tested independently in `tests/adapter/` with recorded fixtures. This is useful for adapters shared across profiles and for verifying the parsing logic in isolation from command construction.
+The output adapters (`adapters/pijsonmode.go`, `adapters/pisession.go`, `adapters/claudestreamjson.go`) are also tested independently with recorded testdata fixtures. This is useful for adapters shared across profiles and for verifying the parsing logic in isolation from command construction.
 
 #### What About Tmux?
 
-Tmux is excluded from E2E tests (`--no-tmux` always). Tmux adds real process management complexity - pane creation, polling, exit-code file detection, pane existence fallback - that is orthogonal to workflow correctness. Test tmux integration separately with focused integration tests in `tests/integration/test_tmux.py` that verify: pane creation, execution window reuse, exit-code file polling, pane-gone fallback detection. These can use `tmux` directly in a test tmux server (`tmux -L test-server`) to avoid interfering with the user's session.
+Tmux is excluded from E2E tests (`--no-tmux` always). Tmux adds real process management complexity - pane creation, polling, exit-code file detection, pane existence fallback - that is orthogonal to workflow correctness. Test tmux integration separately with focused integration tests in `internal/tmux/tmux_test.go` that verify: pane creation, execution window reuse, exit-code file polling, pane-gone fallback detection. These can use `tmux` directly in a test tmux server (`tmux -L test-server`) to avoid interfering with the user's session.
 
 ---
 
@@ -742,7 +638,7 @@ Used for: audit, resume, error recovery, debugging, cost tracking, history. Any 
 
 **`schemaVersion`** is a required integer at the root of every record. Written as the first key in JSON output. Enables future schema migrations: `record_from_json` checks the version and rejects records from newer `wf` versions with a clear upgrade message. Records without the field are assumed to be version 1.
 
-**Forward-compatibility policy.** The root record schema and `$defs/WorkflowRecord` do NOT set `additionalProperties: false` — unknown top-level keys are tolerated. This allows records written by a newer `wf` version (with new sections like a future `phases` or `council` field) to be loaded by an older version without error. The Python loader (`record_from_json`) ignores unknown keys. Sub-schemas (`Plan`, `Task`, `Brainstorm`, `ReportResult`, etc.) DO use `additionalProperties: false` because they are tool registration contracts — strict validation catches malformed LLM tool calls.
+**Forward-compatibility policy.** The root record schema and `$defs/WorkflowRecord` do NOT set `additionalProperties: false` — unknown top-level keys are tolerated. This allows records written by a newer `wf` version (with new sections like a future `phases` or `council` field) to be loaded by an older version without error. The record loader ignores unknown keys (Go's `json.Unmarshal` does this by default for struct fields). Sub-schemas (`Plan`, `Task`, `Brainstorm`, `ReportResult`, etc.) DO use `additionalProperties: false` because they are tool registration contracts — strict validation catches malformed LLM tool calls.
 
 **`reviews` is an array.** A review may find issues, those get fixed, and you may review again. Each cycle is an entry. Fixup plan + implementation nest inside the review entry that produced them.
 
@@ -790,7 +686,7 @@ For brainstorm and plan phases: `interactive` maps to `wf brainstorm`/`wf plan` 
 
 ### `schemas/workflow.schema.json`
 
-Single JSON Schema file. The published contract for all data structures — used by harness wrappers for tool registration and by `wf schema` for external consumers. The root schema describes the full workflow record. Sub-schemas live in `$defs` and are extractable via `wf schema --component`. Runtime validation is done by the Python dataclasses in `types.py`, not by this schema file.
+Single JSON Schema file. The published contract for all data structures — used by harness wrappers for tool registration and by `wf schema` for external consumers. The root schema describes the full workflow record. Sub-schemas live in `$defs` and are extractable via `wf schema --component`. Runtime validation is done by Go struct unmarshaling + business rule checks in `internal/types/`, not by this schema file.
 
 **Root** - validates the complete record file (`docs/workflows/<name>.json`).
 
@@ -869,7 +765,7 @@ wf schema --component report-result # just $defs/ReportResult
 
 ## Prompts
 
-Plain markdown files in `wf/prompts/`. Each is a complete **system prompt** or **context injection** for a specific role. Harness wrappers read these and inject them however their harness handles system prompts. These are distinct from **templates** (in `wf/templates/`) which are user-invokable conversation fragments with variable substitution - see the Templates section below.
+Plain markdown files embedded in the `wf` binary via `go:embed` (source in `prompts/`). Each is a complete **system prompt** or **context injection** for a specific role. Harness wrappers read these and inject them however their harness handles system prompts. These are distinct from **templates** (source in `templates/`, also embedded via `go:embed`) which are user-invokable conversation fragments with variable substitution - see the Templates section below.
 
 | File | Role | Current source |
 |------|------|---------------|
@@ -886,18 +782,20 @@ Plain markdown files in `wf/prompts/`. Each is a complete **system prompt** or *
 
 All JSON — tool payloads, record files, CLI output, schema files — uses **camelCase** field names: `defaultModel`, `dependsOn`, `filesChanged`, `diffStat`, `sourceCommit`, `sourceBranch`, `baseCommit`, `createdAt`, etc.
 
-Python dataclasses use **snake_case** internally (`default_model`, `depends_on`, `files_changed`). The `from_dict()` / `to_dict()` methods in `types.py` handle the mapping. This is a ~10-line helper (convert keys with `re.sub(r'_([a-z])', lambda m: m.group(1).upper(), key)` and its inverse).
+Go structs use PascalCase internally (`DefaultModel`, `DependsOn`, `FilesChanged`). Struct tags handle the mapping: `json:"dependsOn"`. This is zero-cost — no custom serialization needed.
 
 Rationale:
 - **Backward compatible** — the existing `submit_plan` tool uses camelCase (`defaultModel`, `dependsOn`). LLMs already produce this format. Changing it would break existing plans and muscle memory.
-- **One convention per format** — JSON is camelCase everywhere, Python is snake_case everywhere. No per-field guessing.
-- **Record files contain plans as-submitted** — the plan portion of the record is the tool payload verbatim. Having `dependsOn` in the plan but `depends_on` in `implementation` would be jarring.
+- **One convention per format** — JSON is camelCase everywhere, Go is PascalCase everywhere. No per-field guessing.
+- **Record files contain plans as-submitted** — the plan portion of the record is the tool payload verbatim.
 
 ---
 
-## `wflib/types.py`
+## Types (`internal/types/`)
 
-Data classes for all structures. JSON serialization/deserialization. Schema validation against the JSON Schema files in `schemas/`.
+Data structures for all domain objects. JSON serialization via struct tags. Validation against the JSON Schema files in `schemas/`.
+
+> *The code samples below are from the original Python implementation. They illustrate the data structures and behavioral contracts, not the target implementation. In Go, these become structs with `json:"camelCase"` tags. `encoding/json` handles all serialization. Enums become `type X string` const blocks. Optional fields use pointer types or `omitempty`.*
 
 ```python
 # --- Core plan types ---
@@ -1135,8 +1033,7 @@ CURRENT_SCHEMA_VERSION = 1
 class WorkflowRecord:
     workflow: WorkflowMeta
     schema_version: int = CURRENT_SCHEMA_VERSION
-        # Python: workflow must precede schema_version (non-default before default).
-        # JSON: record_to_json writes schemaVersion as the first key regardless.
+        # JSON output writes schemaVersion as the first key.
     brainstorm: BrainstormRecord | None = None
     plan: PlanRecord | None = None
     implementation: ImplementationRecord | None = None
@@ -1188,7 +1085,7 @@ def extract_tool_call(messages: list[dict], tool_name: str) -> dict | None
 
 ---
 
-## `wflib/config.py`
+## Config (`internal/config/`)
 
 Configuration loading, merging, and resolution. Implements the 5-level precedence chain:
 
@@ -1291,6 +1188,8 @@ CLI --model  >  task.model (LLM-authored)  >  plan.defaultModel (LLM-authored)  
 The LLM's per-task model override (`task.model`) and plan-level default (`plan.defaultModel`) sit between the CLI flag and the config snapshot. This preserves the existing `resolveTaskModel` semantics while extending the fallback chain.
 
 ### API
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts. In Go, these become exported functions in the `config` package. TOML parsing uses `github.com/BurntSushi/toml`.*
 
 ```python
 import tomllib
@@ -1401,9 +1300,11 @@ def set_config_value(path: str, key: str, value: str, scope: str = "user") -> No
 
 ---
 
-## `wflib/record.py`
+## Record (`internal/record/`)
 
 Workflow record file I/O. The central state manager. Every phase reads and writes through this module.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts. In Go, these become exported functions in the `record` package.*
 
 ```python
 WORKFLOWS_DIR = "docs/workflows"
@@ -1533,12 +1434,14 @@ def get_total_usage(record: WorkflowRecord) -> Usage
 
 ---
 
-## `wflib/validate.py`
+## Validate (`internal/validate/`)
 
 Pure validation. No I/O. Combines structural checks (deps, cycles) with
 mechanical heuristic checks derived from the task-decomposition skill.
 The heuristic checks are warnings, not hard errors — they flag likely
 problems without blocking submission.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts.*
 
 ```python
 @dataclass
@@ -1594,9 +1497,11 @@ def _check_duplicate_ids(plan: Plan) -> list[str]
 
 ---
 
-## `wflib/brief.py`
+## Brief (`internal/brief/`)
 
 Deterministic task brief assembly. Pure function - plan data in, string out.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts.*
 
 ```python
 def assemble_task_brief(
@@ -1619,11 +1524,13 @@ def _render_prior_work(task: Task, results: dict[str, TaskResult]) -> str
 
 ---
 
-## `wflib/scheduler.py`
+## Scheduler (`internal/scheduler/`)
 
-DAG scheduler. Pure scheduling logic - manages task readiness, concurrency pool, dependency tracking. Delegates per-task execution to `task_executor.py`.
+DAG scheduler. Pure scheduling logic - manages task readiness, concurrency pool, dependency tracking. Delegates per-task execution to `executor`.
 
-The scheduler owns "which tasks run when." It does NOT own worktree lifecycle, brief assembly, agent spawning, result extraction, or merging - those are `task_executor.run_task`'s responsibility.
+The scheduler owns "which tasks run when." It does NOT own worktree lifecycle, brief assembly, agent spawning, result extraction, or merging - those are `executor.RunTask`'s responsibility.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts. In Go, `async` functions become regular functions using goroutines for concurrency. `asyncio.Lock` becomes `sync.Mutex`.*
 
 ```python
 async def execute_plan(
@@ -1725,11 +1632,13 @@ class ExecutionSummary:
 
 ---
 
-## `wflib/task_executor.py`
+## Task Executor (`internal/executor/`)
 
 Per-task execution lifecycle. Owns the full pipeline for running a single task: worktree setup, brief assembly, agent spawning, result processing, merge-back, and cleanup. Called by the scheduler for each task.
 
-This is the module that was previously implicit inside `scheduler.py` / the legacy `index.ts` `runTask` function. Factoring it out means the scheduler focuses purely on DAG logic, and the per-task pipeline is independently testable and modifiable.
+This is the module that was previously implicit inside the scheduler / the legacy `index.ts` `runTask` function. Factoring it out means the scheduler focuses purely on DAG logic, and the per-task pipeline is independently testable and modifiable.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts. In Go, `async` functions become regular functions. `asyncio.Lock` becomes `sync.Mutex`.*
 
 ```python
 async def run_task(
@@ -1749,23 +1658,23 @@ async def run_task(
     ephemeral --model flag from the CLI, if any.
 
     Steps:
-      1. Create worktree (if config.execute.worktrees) → worktree.py
-      2. Assemble brief → brief.py
-      3. Resolve model → scheduler.resolve_task_model (cli > task > plan > config)
-      4. Resolve profile → profiles.get_profile(config.agent.profile)
-      5. Record task_start + save → record.py
-      6. Spawn agent → runner.py (spawn_headless or spawn_in_tmux)
+      1. Create worktree (if config.execute.worktrees) → worktree package
+      2. Assemble brief → brief package
+      3. Resolve model → scheduler.ResolveTaskModel (cli > task > plan > config)
+      4. Resolve profile → profiles.GetProfile(config.agent.profile)
+      5. Record task_start + save → record package
+      6. Spawn agent → runner package (SpawnHeadless or SpawnInTmux)
          Runner delegates to profile for command construction + output parsing.
       7. Copy results.json to durable location → file I/O
-      8. Read results + extract report_result → runner.py
-      9. Capture git diff/stat from worktree → git.py
-     10. Commit if dirty → worktree.py
-     11. Merge back (acquires merge_lock) → worktree.py
+      8. Read results + extract report_result → runner package
+      9. Capture git diff/stat from worktree → git package
+     10. Commit if dirty → worktree package
+     11. Merge back (acquires merge lock) → worktree package
      12. If merge conflict → auto-resolve (see below)
-     13. Record task_complete + save → record.py
-     14. Update dependency graph (skip_dependents or reset_ready_skipped)
-     15. Cleanup worktree → worktree.py
-     16. Record cleanup event → record.py
+     13. Record task_complete + save → record package
+     14. Update dependency graph (SkipDependents or ResetReadySkipped)
+     15. Cleanup worktree → worktree package
+     16. Record cleanup event → record package
 
     On agent failure: marks task failed, skips dependents, preserves
     session file for investigation.
@@ -1844,15 +1753,15 @@ def _preserve_results(
 
 ---
 
-## `profiles/` - Runner Profiles
+## Runner Profiles (`profiles/`)
 
-A **runner profile** is a single Python module that encodes everything needed to spawn and read results from one agent harness. It is the complete "how to drive this agent CLI" in one place. The runner (`wflib/runner.py`) never contains harness-specific code - it calls the profile interface exclusively.
+A **runner profile** is a single Go file that encodes everything needed to spawn and read results from one agent harness. It is the complete "how to drive this agent CLI" in one place. The runner (`internal/runner/`) never contains harness-specific code - it calls the profile interface exclusively.
 
 Profiles are the answer to: "what do I change to add a new harness?" One file. The profile interface is obvious from reading any existing profile.
 
 ### Why Profiles Instead of Just Adapters
 
-The earlier design had adapters (output parsers) as the harness-specific zone, with command construction buried in `runner.py`. This was insufficient because harness-specific knowledge spans three concerns, not one:
+The earlier design had adapters (output parsers) as the harness-specific zone, with command construction buried in the runner. This was insufficient because harness-specific knowledge spans three concerns, not one:
 
 1. **Command construction** - how you build the CLI invocation (`pi --mode json -p --no-session --no-extensions --append-system-prompt ... -e ext.ts` vs `claude -p --bare --output-format stream-json --append-system-prompt-file ... --mcp-config ...`)
 2. **Output parsing** - how you extract messages/usage/tool calls from agent output (pi's JSON event stream vs Claude Code's `stream-json` NDJSON)
@@ -1860,7 +1769,9 @@ The earlier design had adapters (output parsers) as the harness-specific zone, w
 
 These three are intertwined - how you load tools is part of how you construct the command, and the output format determines which adapter to use. A profile bundles all three into a single cohesive unit.
 
-### The `RunnerProfile` Protocol
+### The `RunnerProfile` Interface
+
+> *The code samples below are from the original Python implementation. They illustrate the interface contract. In Go, this becomes a `RunnerProfile` interface in the `profiles` package.*
 
 ```python
 # profiles/__init__.py
@@ -2062,7 +1973,7 @@ A user adding a new model before the profile ships it:
 
 2. **One name, all harnesses.** The user writes `model.implement = "sonnet"` once. Each profile translates it to the right harness string. Switch profiles and it still works.
 
-3. **User-extensible without code changes.** New model? Add one line to config. Custom provider format? Override the mapping. No Python edits, no `wf` update.
+3. **User-extensible without code changes.** New model? Add one line to config. Custom provider format? Override the mapping. No code edits, no `wf` rebuild.
 
 4. **Snapshotted at init time.** The resolved `[models]` config (aliases + per-profile overrides) is captured in `workflow.config.models` in the record. A workflow always uses the model mappings it was initialized with, even if config changes later.
 
@@ -2080,7 +1991,9 @@ user writes "fast"  →  config stores "fast"  →  resolve_task_model picks it
 
 `resolve_model` is called inside `build_headless_cmd` and `build_tmux_wrapper` - the runner never sees harness-specific model strings.
 
-### `profiles/pi.py` - Pi Runner Profile
+### `profiles/pi.go` - Pi Runner Profile
+
+> *The code sample below is from the original Python implementation. It illustrates the Pi profile's behavioral contract. Implement idiomatically in Go.*
 
 ```python
 from adapters import pi_json_mode, pi_session
@@ -2223,7 +2136,9 @@ echo $? > "$RESULT_FILE"
         return str(Path.home() / ".pi" / "agent" / "extensions")
 ```
 
-### `profiles/claude_code.py` - Claude Code Runner Profile
+### `profiles/claudecode.go` - Claude Code Runner Profile
+
+> *The code sample below is from the original Python implementation. It illustrates the Claude Code profile's behavioral contract. Implement idiomatically in Go.*
 
 ```python
 from adapters import claude_stream_json
@@ -2338,7 +2253,9 @@ class ClaudeCodeProfile:
         return str(Path(__file__).parent.parent)
 ```
 
-### `profiles/mock.py` - Mock Profile for E2E Tests
+### `profiles/mock.go` - Mock Profile for E2E Tests
+
+> *The code sample below is from the original Python implementation. It illustrates the mock profile's behavioral contract.*
 
 ```python
 class MockProfile:
@@ -2401,7 +2318,7 @@ profile = "pi"              # which profile to use
 # cmd = "/custom/path/to/pi"  # optional: override binary path
 ```
 
-The `profile` field selects the full behavior set: command construction, output parsing, tool loading. The `cmd` field optionally overrides just the binary path within that profile (e.g. a custom pi build at a non-standard location). This is passed through to `build_headless_cmd(cmd_override=config.agent.cmd)`.
+The `profile` field selects the full behavior set: command construction, output parsing, tool loading. The `cmd` field optionally overrides just the binary path within that profile (e.g. a custom pi build at a non-standard location). This is passed through to `BuildHeadlessCmd(CmdOverride: config.Agent.Cmd)`.
 
 CLI flags:
 - `wf execute --profile claude-code` - ephemeral override for this invocation
@@ -2409,7 +2326,7 @@ CLI flags:
 
 ---
 
-## `wflib/runner.py`
+## Runner (`internal/runner/`)
 
 Agent subprocess spawning. **Profile-driven - zero harness-specific code.**
 
@@ -2432,9 +2349,11 @@ The runner is the bridge between the scheduler and the profile. It handles proce
 
 `messages` is a flat list of conversation messages with `role` and `content` fields. Content blocks include `{"type": "text", "text": "..."}` and `{"type": "toolCall", "name": "report_result", "arguments": {...}}`. This is the minimal subset needed for `extract_report_result` to find the structured completion report, and `extract_summary_fallback` to grab the last assistant text.
 
-**Why this matters for reuse:** The current planner imports `SessionManager` from `@mariozechner/pi-coding-agent` to read tmux-mode session files. A Python rewrite would have to reimplement that parsing - duplicating internal knowledge of pi's session format. The profile+adapter pattern keeps that knowledge in one thin, replaceable layer and gives `runner.py` a single code path for reading results regardless of harness or spawn mode.
+**Why this matters for reuse:** The current planner imports `SessionManager` from `@mariozechner/pi-coding-agent` to read tmux-mode session files. Reimplementing that parsing would duplicate internal knowledge of pi's session format. The profile+adapter pattern keeps that knowledge in one thin, replaceable layer and gives the runner a single code path for reading results regardless of harness or spawn mode.
 
 **Future direction:** If pi grows a `pi --export-results <session-dir> <output-file>` command, the pi profile's adapter could delegate to it instead of reimplementing the parsing. This would make the adapter a one-liner and keep pi's session format fully encapsulated in pi.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts.*
 
 ```python
 from profiles import get_profile, RunnerProfile
@@ -2544,7 +2463,7 @@ Subagent tools (`report_result`, `submit_plan`, `record_brainstorm`) need to be 
 
 Three small TypeScript files, each following the pi extension API. Each uses a TypeBox schema that mirrors the corresponding `$defs` in `workflow.schema.json`. The pi runner profile loads them via `-e <path>`.
 
-**Schema consistency:** A small Node test (`tools/pi_extensions/schema-consistency.test.ts`) loads the TypeBox schemas and the JSON Schema `$defs` (via `wf schema --component ...`), then runs the same valid/invalid fixtures through both validators. This catches drift without requiring automated generation. The Python test suite only asserts that the JSON Schema components are internally valid and loadable.
+**Schema consistency:** A small Node test (`tools/pi_extensions/schema-consistency.test.ts`) loads the TypeBox schemas and the JSON Schema `$defs` (via `wf schema --component ...`), then runs the same valid/invalid fixtures through both validators. This catches drift without requiring automated generation. The Go test suite only asserts that the JSON Schema components are internally valid and loadable.
 
 - **`report-result-tool.ts`** - schema from `$defs/ReportResult`. Implementation agents call this when done.
 - **`submit-plan-tool.ts`** - schema from `$defs/Plan`. Planning and review agents call this.
@@ -2552,13 +2471,13 @@ Three small TypeScript files, each following the pi extension API. Each uses a T
 
 All three are validate-and-return - they don't write to the record or do any I/O beyond schema validation. `wf` extracts the tool call from `results.json` messages after the session ends.
 
-### `tools/mcp_server.py` - MCP Tool Server (Python)
+### `tools/mcpserver/` - MCP Tool Server (Go)
 
-A single Python MCP server that exposes all three tools. Used by Claude Code (via `--mcp-config`) and any future MCP-based harness. Accepts a `--tools` flag to expose only a subset (e.g. `--tools report-result` for implementation agents, `--tools submit-plan` for review agents).
+A small Go binary that exposes all three tools via MCP. Used by Claude Code (via `--mcp-config`) and any future MCP-based harness. Accepts a `--tools` flag to expose only a subset (e.g. `--tools report-result` for implementation agents, `--tools submit-plan` for review agents).
 
-Reads schemas from `wf schema --component <name>` at startup. Validates inputs against the schema. Returns success with the validated data. Same validate-and-return pattern as the pi extensions.
+Reads schemas from `wf schema --component <name>` at startup (or embeds them directly). Validates inputs against the schema. Returns success with the validated data. Same validate-and-return pattern as the pi extensions.
 
-Pure stdlib Python - no external dependencies. Uses the MCP stdio transport protocol (JSON-RPC over stdin/stdout), which is simple enough to implement in ~100 lines without an MCP SDK.
+Uses the MCP stdio transport protocol (JSON-RPC over stdin/stdout), which is simple enough to implement in ~100 lines without an MCP SDK.
 
 ### Why Tools Ship with `wf`, Not with Wrappers
 
@@ -2570,21 +2489,23 @@ In the earlier design, subagent tool extensions lived with the pi wrapper (`~/.p
 
 ---
 
-## `adapters/` - Output Format Parsers
+## Adapters (`adapters/`)
 
-Pure functions that parse harness-specific output into the standardized results dict. No command construction, no subprocess management, no tool loading - just output → results. Profiles call adapters; adapters know nothing about profiles.
+Pure functions that parse harness-specific output into the standardized results struct. No command construction, no subprocess management, no tool loading - just output → results. Profiles call adapters; adapters know nothing about profiles.
 
-- **`pi_json_mode.py`** - parses pi `--mode json` stdout (NDJSON event stream: `message_end`, `tool_result_end` events) into results dict with messages, usage, model, provider.
-- **`pi_session.py`** - parses pi session `.jsonl` files (same message format as pi's `SessionManager`) into results dict.
-- **`claude_stream_json.py`** - parses Claude Code `--output-format stream-json` stdout (NDJSON: `text`, `tool_use`, `tool_result` events) into results dict.
+- **`pijsonmode.go`** - parses pi `--mode json` stdout (NDJSON event stream: `message_end`, `tool_result_end` events) into results struct with messages, usage, model, provider.
+- **`pisession.go`** - parses pi session `.jsonl` files (same message format as pi's `SessionManager`) into results struct.
+- **`claudestreamjson.go`** - parses Claude Code `--output-format stream-json` stdout (NDJSON: `text`, `tool_use`, `tool_result` events) into results struct.
 
-Adapters are shared across profiles where formats overlap. A future harness that emits pi-compatible JSON events could reuse `pi_json_mode.py` directly.
+Adapters are shared across profiles where formats overlap. A future harness that emits pi-compatible JSON events could reuse the pi JSON mode adapter directly.
 
 ---
 
-## `wflib/tmux.py`
+## Tmux (`internal/tmux/`)
 
 Tmux pane/window management.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts.*
 
 ```python
 # --- Detection ---
@@ -2617,9 +2538,11 @@ def shell_escape(s: str) -> str
 
 ---
 
-## `wflib/git.py`
+## Git (`internal/git/`)
 
 Thin git wrapper.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts.*
 
 ```python
 @dataclass
@@ -2641,9 +2564,11 @@ def get_head_full(cwd: str) -> str | None
 
 ---
 
-## `wflib/worktree.py`
+## Worktree (`internal/worktree/`)
 
 Git worktree lifecycle - create, setup deps, merge back, cleanup.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts.*
 
 ```python
 @dataclass
@@ -2709,9 +2634,11 @@ def commit_remaining_changes(cwd: str, message: str) -> bool
 
 ---
 
-## `wflib/review.py`
+## Review (`internal/review/`)
 
 Code review orchestration - diff context building and review agent spawning.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts.*
 
 ```python
 def build_diff_context(cwd: str, base_commit: str | None = None) -> str
@@ -2766,9 +2693,11 @@ class AutoReviewResult(ReviewResult):
 
 ---
 
-## `wflib/render.py`
+## Render (`internal/render/`)
 
 All text rendering - markdown, usage tables, status formatting.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts.*
 
 ```python
 def render_record_markdown(record: WorkflowRecord) -> str
@@ -2899,10 +2828,12 @@ The pi wrapper (or any harness) calls `wf template list` to discover available t
 
 For pi specifically, this replaces the current `~/.pi/agent/prompts/` directory as the template source - the wrapper reads from `wf` instead of its own prompts directory.
 
-### `wflib/templates.py`
+### Templates (`internal/templates/`)
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts. Shipped templates are embedded via `go:embed`.*
 
 ```python
-SHIPPED_DIR = "<wf_install>/templates"    # alongside wflib/
+SHIPPED_DIR = "<wf_install>/templates"    # embedded via go:embed
 PROJECT_DIR = "docs/workflows/templates"  # in the project repo
 
 @dataclass
@@ -2939,9 +2870,11 @@ def parse_frontmatter(content: str) -> tuple[dict, str]
 
 ---
 
-## `wflib/log.py`
+## Log (`internal/log/`)
 
 Debug logging - append-only JSONL file.
+
+> *The code sample below is from the original Python implementation.*
 
 ```python
 LOG_PATH = "~/.wf/debug.log"
@@ -2958,9 +2891,11 @@ def status_snap(statuses: dict[str, TaskStatus]) -> str
 
 ---
 
-## `wflib/completions.py`
+## Completions (`internal/completions/`)
 
-Shell completion script generation and dynamic completion callback. Self-contained - no imports from scheduler, record, runner, or any other wflib module. Knows only the static CLI surface (subcommands, flags per subcommand) and how to shell out to query commands for dynamic completions.
+Shell completion script generation and dynamic completion callback. Self-contained - no imports from scheduler, record, runner, or any other internal package. Knows only the static CLI surface (subcommands, flags per subcommand) and how to shell out to query commands for dynamic completions.
+
+> *The code samples below are from the original Python implementation. They illustrate the function signatures and behavioral contracts.*
 
 ```python
 # --- Script generation ---
@@ -3039,9 +2974,9 @@ COMPONENT_NAMES: list[str]  # ["plan", "brainstorm", "task", "report-result", "u
 
 ### Design Notes
 
-**Zero dependencies on wflib internals.** The module does not import `record.py`, `types.py`, or anything else. Dynamic completions read JSON files directly with `json.load` and scan directories with `os.listdir`. This keeps it trivially testable and avoids import-time side effects during completion (which must be fast and silent).
+**Zero dependencies on internal packages.** The completions package does not import `record`, `types`, or anything else. Dynamic completions read JSON files directly with `json.Unmarshal` and scan directories with `os.ReadDir`. This keeps it trivially testable and avoids side effects during completion (which must be fast and silent).
 
-**Python startup latency.** The generated shell scripts call `wf --complete <words>` for dynamic completions. Python startup is ~30-50ms, plus ~10-20ms for a directory scan or JSON read. Total ~50-70ms per tab press - well within the ~100ms threshold where completions feel instant.
+**Startup latency.** The generated shell scripts call `wf --complete <words>` for dynamic completions. Go binary startup is near-instant (~5ms), plus ~10-20ms for a directory scan or JSON read. Well within the ~100ms threshold where completions feel instant.
 
 **`--complete` is a hidden internal interface.** It is not listed in `wf help`, not documented for users, and not part of the public CLI contract. The generated scripts are the only intended caller. The word list format matches the shell's `COMP_WORDS` (bash) or equivalent.
 
@@ -3049,11 +2984,10 @@ COMPONENT_NAMES: list[str]  # ["plan", "brainstorm", "task", "report-result", "u
 
 ---
 
-## `bin/wf` - CLI Entry Point
+## CLI Entry Point (`cmd/wf/`)
 
 ```
-#!/usr/bin/env python3
-"""wf - structured AI development workflows.
+wf - structured AI development workflows.
 
 Usage:
     wf init <name> [options]
@@ -3341,7 +3275,7 @@ Config options:
 
 - 0: success
 - 1: execution failure / validation error — stdout is `{"error": "<message>"}` JSON
-- 2: bad arguments / missing workflow — stderr has argparse-style usage text
+- 2: bad arguments / missing workflow — stderr has standard usage text
 
 ### State Contract
 
@@ -3435,7 +3369,7 @@ This logic runs in two places: automatically at the start of `wf execute` (befor
 
 ## Harness Integration Contract
 
-This section is the complete interface between `wf` and any harness wrapper. A wrapper author needs **only** what's listed here - no internal knowledge of wflib, no Python imports, no shared memory. Everything is CLI calls, file reads, and stdin pipes.
+This section is the complete interface between `wf` and any harness wrapper. A wrapper author needs **only** what's listed here - no internal knowledge of `wf` internals, no Go imports, no shared memory. Everything is CLI calls, file reads, and stdin pipes.
 
 ### CLI commands the wrapper calls
 
@@ -3468,7 +3402,7 @@ This section is the complete interface between `wf` and any harness wrapper. A w
 | `<wf_install>/prompts/brainstorm.md` | Inject into conversation when entering brainstorm mode | markdown |
 | `<wf_install>/prompts/planning-context.md` | Inject into conversation when entering plan mode | markdown |
 
-The wrapper discovers `<wf_install>` by resolving the `wf` binary on PATH (e.g. `dirname $(readlink -f $(which wf))/..`), or via an environment variable, or a hardcoded known path. The prompts are plain markdown files - the wrapper reads them and injects them however its harness handles system prompt additions.
+The wrapper gets prompt content by calling `wf prompt <name>` (which outputs the embedded prompt to stdout), or reads them from a known install location. The prompts are plain markdown - the wrapper reads them and injects them however its harness handles system prompt additions.
 
 ### Tool schemas for LLM tool registration
 
@@ -3510,7 +3444,7 @@ When the LLM calls a tool (`submit_plan`, `record_brainstorm`) during an inline 
 4. **Return to LLM.** The wrapper returns the CLI's response as the tool result to the LLM. If `warnings` is non-empty, also display them as notifications.
 5. **Update UI.** The wrapper re-reads the record file to refresh the status bar and widget.
 
-The wrapper never writes to the record file directly. The `wf` CLI is the sole writer. This means validation, state transitions, and file I/O are always in one place (Python), and the wrapper is pure pass-through.
+The wrapper never writes to the record file directly. The `wf` CLI is the sole writer. This means validation, state transitions, and file I/O are always in one place (the `wf` binary), and the wrapper is pure pass-through.
 
 **Why not have the pi extension tools call `wf` themselves?** The pi extension tools in `tools/pi_extensions/` are loaded into *subagent* processes (implementation, review), not the main wrapper session. They are validate-and-return only — they don't write to the record because subagents don't know the workflow name or have write access to the record. The wrapper's tool handlers are different: they run in the main pi session, know the active workflow name, and pipe to the CLI.
 
@@ -3519,7 +3453,7 @@ The wrapper never writes to the record file directly. The `wf` CLI is the sole w
 Brainstorm, planning, implementation, and review agents need tools that `wf` can extract results from. The tool implementations ship with `wf` in `tools/`, with one implementation per tool loading mechanism:
 
 - **`tools/pi_extensions/`** - TypeScript pi extensions (`report-result-tool.ts`, `submit-plan-tool.ts`, `record-brainstorm-tool.ts`). Loaded by the pi profile via `-e <path>`. Each validates the schema and returns success.
-- **`tools/mcp_server.py`** - Python MCP server exposing the same three tools. Loaded by the Claude Code profile via `--mcp-config`. Reads schemas from `wf schema --component` and validates inputs.
+- **`tools/mcpserver/`** - Go MCP server exposing the same three tools. Loaded by the Claude Code profile via `--mcp-config`. Reads schemas from `wf schema --component` (or embeds them) and validates inputs.
 
 All implementations follow the same pattern: validate schema, return success to the agent. `wf` extracts the tool call from `results.json` messages after the session ends.
 
@@ -3557,7 +3491,7 @@ echo '<plan json>' | wf submit-plan <workflow> --cwd <project> \
 
 ### What the wrapper does NOT need
 
-- No Python imports or wflib knowledge
+- No imports of `wf` internals
 - No understanding of worktree lifecycle, DAG scheduling, or merge strategies
 - No direct git operations
 - No subprocess management for subagents
@@ -3652,7 +3586,7 @@ The primary consumer of `wf help` is not a human - it's an AI agent that needs t
 
 1. **Single-call completeness.** `wf help` (no topic) dumps the entire reference - every subcommand, every flag, every concept, every error message, debugging guides, record file anatomy, recovery procedures. ~1200 lines. An agent calls it once and has everything it needs in context. No multi-step discovery ("list topics" → "query each one").
 
-2. **Authoritative.** The help text is the canonical documentation for `wf`. It is more detailed than `--help` flags on individual subcommands (which use argparse's terse format). When in doubt about behavior, `wf help` is the source of truth.
+2. **Authoritative.** The help text is the canonical documentation for `wf`. It is more detailed than `--help` flags on individual subcommands (which use terse format). When in doubt about behavior, `wf help` is the source of truth.
 
 3. **Actionable for debugging.** Each subcommand topic includes: every possible error message with its cause and fix, troubleshooting for common failure patterns, and concrete investigation commands ("run this to see what the agent was told", "check this field in the record"). The `debugging` topic is a step-by-step guide with copy-pasteable shell commands for inspecting workflows, tasks, execution timelines, and worktrees.
 
@@ -3662,7 +3596,7 @@ The primary consumer of `wf help` is not a human - it's an AI agent that needs t
 
 ### Design
 
-`wf help` lives in `wflib/help.py`. Each topic is a function returning a string. The topic registry controls ordering and lookup.
+`wf help` lives in `internal/help/`. Each topic is a function returning a string. The topic registry controls ordering and lookup.
 
 ```
 wf help                    Full reference dump (all topics, ~1200 lines)
@@ -3726,8 +3660,10 @@ The help output is optimized for how agents actually use reference material:
 
 ### Implementation
 
+> *The code sample below is from the original Python implementation. It illustrates the interface.*
+
 ```python
-# wflib/help.py - ~800 lines, pure functions, no I/O beyond print()
+# internal/help/ - ~800 lines, pure functions
 
 TOPICS: list[tuple[str, str, callable]]   # (name, title, content_fn)
 TOPIC_MAP: dict[str, tuple[str, callable]] # name → (title, content_fn)
@@ -3739,7 +3675,7 @@ def help_command(args: list[str]) -> None
     """CLI entry point. Prints to stdout."""
 ```
 
-The module has zero I/O dependencies - it returns strings. The CLI entry point calls `print()`. This makes it trivially testable: `assert "--concurrency" in get_help("execute")`.
+The package has zero I/O dependencies - it returns strings. The CLI entry point calls `fmt.Print()`. This makes it trivially testable.
 
 ---
 
@@ -4331,7 +4267,7 @@ EXIT CODES
   1  Execution failure / validation error.
      stdout: {"error": "<message>"} JSON. Parseable by wrappers.
   2  Bad arguments / missing workflow.
-     stderr: argparse-style usage text.
+     stderr: standard usage text.
 
 GLOBAL BEHAVIOR
 
@@ -4572,6 +4508,8 @@ KEYBOARD SHORTCUT
 
 This section ties every new `wf` artifact back to its source in the current planner extension, prompt templates, and skills. Its purpose is to ensure that carefully-tuned prompts, hard-won heuristics, and non-obvious design decisions survive the rewrite. Implementers should read the source file and port the wisdom - not rewrite from scratch.
 
+> *Note: The current planner is TypeScript. The references below point to TS source files. Port the behavioral contracts and design decisions, not the language-specific patterns.*
+
 ### Prompts
 
 Each prompt file in `wf/prompts/` replaces an inline string constant or event handler in the current TypeScript codebase.
@@ -4612,29 +4550,31 @@ Most system prompts in `wf/prompts/` are ported verbatim from their current inli
 | `types.ts` → `TaskSchema` (TypeBox) | `schemas/workflow.schema.json` → `$defs/Task`. Referenced by `$defs/Plan`. |
 | No current equivalent | `schemas/workflow.schema.json` → `$defs/Brainstorm`. New schema for `record_brainstorm` tool. |
 | No current equivalent (was implicit text format in prompt) | `schemas/workflow.schema.json` → `$defs/ReportResult`. New schema for `report_result` tool. Replaces the "## Summary / ## Files Changed / ## Notes" text convention with a schema-validated tool call. `filesChanged` is deliberately omitted - derived from git. |
-| `submit-plan-tool.ts` (standalone validate-only tool for review subagents) | `tools/pi_extensions/submit-plan-tool.ts` + `tools/mcp_server.py`. Still needed - review and planning subagents need a `submit_plan` tool. Now lives in `wf/tools/` (not with the pi wrapper). Pi profile loads it via `-e`; Claude Code profile loads it via MCP server. Pi extension uses a TypeBox schema mirroring `$defs/Plan`; MCP server reads the JSON Schema via `wf schema --component plan`. Both validate input and return success. |
-| No current equivalent | `tools/pi_extensions/record-brainstorm-tool.ts` + `tools/mcp_server.py`. Loaded by brainstorm agents. Pi profile loads via `-e`; Claude Code via MCP. Registers the `record_brainstorm` tool with schema from `$defs/Brainstorm`. Same validate-and-return pattern. |
-| No current equivalent | `tools/pi_extensions/report-result-tool.ts` + `tools/mcp_server.py`. Loaded by implementation subagents. Pi profile loads via `-e`; Claude Code via MCP. Registers the `report_result` tool with schema from `$defs/ReportResult`. Same pattern. |
+| `submit-plan-tool.ts` (standalone validate-only tool for review subagents) | `tools/pi_extensions/submit-plan-tool.ts` + `tools/mcpserver/`. Still needed - review and planning subagents need a `submit_plan` tool. Now lives in `wf/tools/` (not with the pi wrapper). Pi profile loads it via `-e`; Claude Code profile loads it via MCP server. Pi extension uses a TypeBox schema mirroring `$defs/Plan`; MCP server reads the JSON Schema via `wf schema --component plan`. Both validate input and return success. |
+| No current equivalent | `tools/pi_extensions/record-brainstorm-tool.ts` + `tools/mcpserver/`. Loaded by brainstorm agents. Pi profile loads via `-e`; Claude Code via MCP. Registers the `record_brainstorm` tool with schema from `$defs/Brainstorm`. Same validate-and-return pattern. |
+| No current equivalent | `tools/pi_extensions/report-result-tool.ts` + `tools/mcpserver/`. Loaded by implementation subagents. Pi profile loads via `-e`; Claude Code via MCP. Registers the `report_result` tool with schema from `$defs/ReportResult`. Same pattern. |
 
 ### Core Logic
 
-| Current file | New module | Migration notes |
+| Current file | New package | Migration notes |
 |-------------|------------|------------------|
-| `helpers.ts` → `validatePlan` | `wflib/validate.py` | Direct port. Dep ref check + DFS cycle detection. Pure function. |
-| `brief.ts` → `assembleTaskBrief` | `wflib/brief.py` | **Port the code comments verbatim as docstrings.** The comments explain WHY files are hints (not inlined), WHY goals (not steps), WHY constraints are stated as facts. These are load-bearing design decisions. Also port the `toRelative` path conversion (from `helpers.ts`) - it ensures subagent file hints resolve against the worktree, not the main repo. |
-| `runner.ts` → `spawnHeadless` | `wflib/runner.py` → `spawn_headless` + `profiles/pi.py` + `adapters/pi_json_mode.py` | The `--no-extensions -e research.ts -e web-fetch/index.ts` pattern (clean tool set + allowed extras) is now encoded in `profiles/pi.py` → `build_headless_cmd`. JSON line parsing for `message_end`/`tool_result_end` events moves to the pi JSON-mode adapter. Runner is profile-driven: calls `profile.build_headless_cmd()` for command construction, `profile.parse_headless_output()` for result extraction. Zero pi-specific code in runner.py. Abort handling: SIGTERM then SIGKILL after 5s timeout. Temp file cleanup in finally block. |
-| `runner.ts` → `parseOutput` | `wflib/runner.py` → `extract_report_result` + `extract_summary_fallback` (both delegate to `types.extract_tool_call`) | **Replaced.** The old regex-based extraction of "## Summary" / "## Files Changed" / "## Notes" from text is replaced by `extract_report_result`, which delegates to the shared `extract_tool_call(messages, 'report_result')` in types.py. Schema-validated, deterministic. `filesChanged` is no longer extracted from agent output at all - it comes from `git diff --name-only` in the worktree (authoritative). The fallback to "last 500 chars" is preserved in `extract_summary_fallback` for the degraded path when the agent didn't call the tool (crash, error, forgot). |
-| `tmux-runner.ts` | `wflib/tmux.py` + `wflib/runner.py` → `spawn_in_tmux` + `profiles/pi.py` → `build_tmux_wrapper` + `adapters/pi_session.py` | Execution window state management (first task creates window, subsequent tasks split panes) stays in `tmux.py`. Wrapper script generation moves to `profiles/pi.py` → `build_tmux_wrapper` - the profile generates the bash script with EXIT/HUP/TERM/INT trap, pi invocation, adapter call, and exit-code file write. Completion polling stays in `runner.py` (universal). Session file reading is in the pi session adapter (replaces direct `SessionManager.open` import). Pane border titles, tiled layout re-application after each split stay in `tmux.py`. |
-| `git.ts` | `wflib/git.py` | Thin wrapper. Direct port. |
-| `worktree.ts` → task worktree functions | `wflib/worktree.py` | **Key detail:** `commit_if_dirty` uses `git add -A -- ':!docs/workflows/'` to exclude the record file directory. Without this, stale record copies from task worktrees merge back and overwrite the scheduler's updates. Also: `.worktree-setup` hook (runs instead of default symlinking), `symlink_deps` default list (node_modules, .venv, vendor, etc.), rebase-then-ff merge strategy, worktree preservation on conflict (don't clean up - user needs it for manual resolution). |
-| `worktree.ts` → plan worktree functions | `wflib/worktree.py` → workflow worktree functions | `createPlanWorktree` → `create_workflow_worktree`, `closePlanWorktree` → `close_workflow_worktree`. The `.plan-init-*.json` metadata file is replaced by the workflow record's `workflow.worktree` + `workflow.sourceBranch` fields. |
-| `code-review.ts` → `buildDiffContext` | `wflib/review.py` → `build_diff_context` | Priority chain: baseCommit → uncommitted changes. 100KB cap on full diff with graceful fallback message. Includes commit log, diff stat, and full diff as separate markdown sections. |
-| `auto-review.ts` → `extractPlanFromMessages` | `wflib/review.py` → `extract_plan_from_messages` (delegates to `types.extract_tool_call`) | Delegates to the shared `extract_tool_call(messages, 'submit_plan')` in types.py. Same extraction pattern as `extract_report_result` - both use one utility, eliminating the duplication between runner.py and review.py in the legacy code. |
-| `auto-review.ts` → `runAutoReview` | `wflib/review.py` → `run_auto_review` | Orchestrates review agent spawning with the combined CODE_REVIEW_PROMPT + diff context + reviewer-with-plan system prompt. Loads submit-plan-tool extension for the subagent. |
-| `index.ts` → DAG scheduler (pool-based `tryStart` loop) | `wflib/scheduler.py` → `execute_plan` + `wflib/task_executor.py` → `run_task` | **Pool-based, not wave-based** - task C that depends only on A starts when A finishes, even if slow sibling B is still running. Currently duplicated in index.ts (main execution + fixup execution) - consolidate to one function. The per-task lifecycle (worktree → brief → spawn → results → merge → cleanup) is extracted from the scheduler into `task_executor.run_task`, replacing the implicit `runTask` closure in index.ts. Scheduler owns DAG logic only: pool management, `get_ready_tasks`, `skip_dependents` with transitive BFS closure, `reset_ready_skipped` (iterates until stable). Merge serialization via asyncio.Lock passed to `run_task`. |
-| `index.ts` → `resolveTaskModel` | `wflib/scheduler.py` → `resolve_task_model` | Extended precedence: CLI --model > task.model > plan.defaultModel > config.model.implement > None. The config snapshot adds a new fallback level between the LLM-authored plan default and "no model specified." **Intentional:** user's explicit CLI flag beats LLM-generated plan values, which beat the config snapshot. Returns both the model and its source (for logging/display). The returned name is still a wf canonical/user string - it is NOT harness-specific. Translation to the exact harness string happens in `profile.resolve_model()`, called inside `build_headless_cmd`/`build_tmux_wrapper`. This keeps the scheduler profile-agnostic. |
-| No current equivalent | `wflib/config.py` | **New module.** Configuration loading (TOML via `tomllib`), merging (deep dict merge), resolution (5-level precedence chain), snapshotting (at init time). Also handles `wf config` subcommands (list, get, set). Config files are `~/.config/wf/config.toml` (user) and `.wf/config.toml` (project). The resolved snapshot is stored in `workflow.config` in the record and read by all subsequent commands. CLI flags override the snapshot ephemerally. |
-| `helpers.ts` → state file I/O | **Eliminated.** `wflib/record.py` | The separate `.state.json` files and `~/.pi/plan-history.jsonl` are replaced by the single workflow record file. All the durability guarantees (atomic write, crash recovery, cross-session resume) now come from record.py's atomic write (write tmp + rename). |
+| `helpers.ts` → `validatePlan` | `internal/validate/` | Direct port. Dep ref check + DFS cycle detection. Pure function. |
+| `brief.ts` → `assembleTaskBrief` | `internal/brief/` | **Port the code comments verbatim as doc comments.** The comments explain WHY files are hints (not inlined), WHY goals (not steps), WHY constraints are stated as facts. These are load-bearing design decisions. Also port the `toRelative` path conversion (from `helpers.ts`) - it ensures subagent file hints resolve against the worktree, not the main repo. |
+| Current file | New package | Migration notes |
+|-------------|------------|------------------|
+| `runner.ts` → `spawnHeadless` | `internal/runner/` + `profiles/pi.go` + `adapters/pijsonmode.go` | The `--no-extensions -e research.ts -e web-fetch/index.ts` pattern (clean tool set + allowed extras) is now encoded in `profiles/pi.go` → `BuildHeadlessCmd`. JSON line parsing for `message_end`/`tool_result_end` events moves to the pi JSON-mode adapter. Runner is profile-driven: calls `profile.BuildHeadlessCmd()` for command construction, `profile.ParseHeadlessOutput()` for result extraction. Zero pi-specific code in runner. Abort handling: SIGTERM then SIGKILL after 5s timeout. Temp file cleanup via `defer`. |
+| `runner.ts` → `parseOutput` | `internal/runner/` → `ExtractReportResult` + `ExtractSummaryFallback` (both delegate to `types.ExtractToolCall`) | **Replaced.** The old regex-based extraction of "## Summary" / "## Files Changed" / "## Notes" from text is replaced by `ExtractReportResult`, which delegates to the shared `ExtractToolCall(messages, "report_result")` in the types package. Schema-validated, deterministic. `filesChanged` is no longer extracted from agent output at all - it comes from `git diff --name-only` in the worktree (authoritative). The fallback to "last 500 chars" is preserved in `ExtractSummaryFallback` for the degraded path when the agent didn't call the tool (crash, error, forgot). |
+| `tmux-runner.ts` | `internal/tmux/` + `internal/runner/` → `SpawnInTmux` + `profiles/pi.go` → `BuildTmuxWrapper` + `adapters/pisession.go` | Execution window state management (first task creates window, subsequent tasks split panes) stays in `tmux` package. Wrapper script generation moves to `profiles/pi.go` → `BuildTmuxWrapper` - the profile generates the bash script with EXIT/HUP/TERM/INT trap, pi invocation, adapter call, and exit-code file write. Completion polling stays in `runner` (universal). Session file reading is in the pi session adapter (replaces direct `SessionManager.open` import). Pane border titles, tiled layout re-application after each split stay in `tmux`. |
+| `git.ts` | `internal/git/` | Thin wrapper. Direct port. |
+| `worktree.ts` → task worktree functions | `internal/worktree/` | **Key detail:** `CommitIfDirty` uses `git add -A -- ':!docs/workflows/'` to exclude the record file directory. Without this, stale record copies from task worktrees merge back and overwrite the scheduler's updates. Also: `.worktree-setup` hook (runs instead of default symlinking), `SymlinkDeps` default list (node_modules, .venv, vendor, etc.), rebase-then-ff merge strategy, worktree preservation on conflict (don't clean up - user needs it for manual resolution). |
+| `worktree.ts` → plan worktree functions | `internal/worktree/` → workflow worktree functions | `createPlanWorktree` → `CreateWorkflowWorktree`, `closePlanWorktree` → `CloseWorkflowWorktree`. The `.plan-init-*.json` metadata file is replaced by the workflow record's `workflow.worktree` + `workflow.sourceBranch` fields. |
+| `code-review.ts` → `buildDiffContext` | `internal/review/` → `BuildDiffContext` | Priority chain: baseCommit → uncommitted changes. 100KB cap on full diff with graceful fallback message. Includes commit log, diff stat, and full diff as separate markdown sections. |
+| `auto-review.ts` → `extractPlanFromMessages` | `internal/review/` → `ExtractPlanFromMessages` (delegates to `types.ExtractToolCall`) | Delegates to the shared `ExtractToolCall(messages, "submit_plan")` in types package. Same extraction pattern as `ExtractReportResult` - both use one utility, eliminating the duplication between runner and review in the legacy code. |
+| `auto-review.ts` → `runAutoReview` | `internal/review/` → `RunAutoReview` | Orchestrates review agent spawning with the combined CODE_REVIEW_PROMPT + diff context + reviewer-with-plan system prompt. Loads submit-plan-tool extension for the subagent. |
+| `index.ts` → DAG scheduler (pool-based `tryStart` loop) | `internal/scheduler/` → `ExecutePlan` + `internal/executor/` → `RunTask` | **Pool-based, not wave-based** - task C that depends only on A starts when A finishes, even if slow sibling B is still running. Currently duplicated in index.ts (main execution + fixup execution) - consolidate to one function. The per-task lifecycle (worktree → brief → spawn → results → merge → cleanup) is extracted from the scheduler into `executor.RunTask`, replacing the implicit `runTask` closure in index.ts. Scheduler owns DAG logic only: pool management, `GetReadyTasks`, `SkipDependents` with transitive BFS closure, `ResetReadySkipped` (iterates until stable). Merge serialization via `sync.Mutex` passed to `RunTask`. |
+| `index.ts` → `resolveTaskModel` | `internal/scheduler/` → `ResolveTaskModel` | Extended precedence: CLI --model > task.model > plan.defaultModel > config.model.implement > None. The config snapshot adds a new fallback level between the LLM-authored plan default and "no model specified." **Intentional:** user's explicit CLI flag beats LLM-generated plan values, which beat the config snapshot. Returns both the model and its source (for logging/display). The returned name is still a wf canonical/user string - it is NOT harness-specific. Translation to the exact harness string happens in `profile.ResolveModel()`, called inside `BuildHeadlessCmd`/`BuildTmuxWrapper`. This keeps the scheduler profile-agnostic. |
+| No current equivalent | `internal/config/` | **New package.** Configuration loading (TOML via `github.com/BurntSushi/toml`), merging (deep map merge), resolution (5-level precedence chain), snapshotting (at init time). Also handles `wf config` subcommands (list, get, set). Config files are `~/.config/wf/config.toml` (user) and `.wf/config.toml` (project). The resolved snapshot is stored in `workflow.config` in the record and read by all subsequent commands. CLI flags override the snapshot ephemerally. |
+| `helpers.ts` → state file I/O | **Eliminated.** `internal/record/` | The separate `.state.json` files and `~/.pi/plan-history.jsonl` are replaced by the single workflow record file. All the durability guarantees (atomic write, crash recovery, cross-session resume) now come from record's atomic write (write tmp + rename). |
 | `plan-lifecycle.ts` → `readPlanMetadata` | **Eliminated.** Record file | The `.plan-init-*.json` tracking file is replaced by `workflow.worktree`, `workflow.sourceBranch`, `workflow.sourceCommit` in the record. |
 
 ### Harness-Specific Logic (stays in pi wrapper)
