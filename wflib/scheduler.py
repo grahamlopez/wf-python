@@ -161,9 +161,9 @@ def recover_running_tasks(
 
         {'cleaned_worktrees': [...], 'reset_tasks': [...], 'incorporated_results': [...]}
     """
-    import os as _os
+    import os
     from wflib import record as record_mod
-    from wflib.runner import _read_agent_results
+    from wflib.runner import read_agent_results
     from wflib.worktree import cleanup_worktree, WorktreeInfo
 
     if record.implementation is None:
@@ -174,8 +174,8 @@ def recover_running_tasks(
     reset_tasks: list[str] = []
     incorporated_results: list[str] = []
 
-    sessions_dir = _os.path.join(
-        _os.path.abspath(cwd), record_mod.WORKFLOWS_DIR,
+    sessions_dir = os.path.join(
+        os.path.abspath(cwd), record_mod.WORKFLOWS_DIR,
         ".sessions", record.workflow.name,
     )
 
@@ -184,13 +184,13 @@ def recover_running_tasks(
             continue
 
         # Check for orphaned results.json and incorporate if present
-        if _os.path.isdir(sessions_dir):
-            orphaned_results_path = _os.path.join(
+        if os.path.isdir(sessions_dir):
+            orphaned_results_path = os.path.join(
                 sessions_dir, f"{task_id}.results.json"
             )
-            if _os.path.isfile(orphaned_results_path):
+            if os.path.isfile(orphaned_results_path):
                 try:
-                    agent_result = _read_agent_results(orphaned_results_path)
+                    agent_result = read_agent_results(orphaned_results_path)
                     if agent_result.summary:
                         result.summary = agent_result.summary
                     if agent_result.notes:
@@ -198,7 +198,7 @@ def recover_running_tasks(
                     if agent_result.usage:
                         result.usage = agent_result.usage
                     incorporated_results.append(task_id)
-                    _os.remove(orphaned_results_path)
+                    os.remove(orphaned_results_path)
                 except Exception:
                     pass  # Best-effort incorporation
 

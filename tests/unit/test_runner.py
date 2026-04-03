@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from wflib.runner import (
-    _read_agent_results,
+    read_agent_results,
     extract_report_result,
     extract_summary_fallback,
 )
@@ -57,8 +57,8 @@ class TestExtractSummaryFallback(unittest.TestCase):
 
 
 class TestReadAgentResults(unittest.TestCase):
-    def test_read_agent_results_valid_report_result(self):
-        """_read_agent_results parses report_result and preserves messages."""
+    def testread_agent_results_valid_report_result(self):
+        """read_agent_results parses report_result and preserves messages."""
         messages = [
             {"role": "assistant", "content": [
                 {"type": "toolCall", "name": "report_result", "arguments": {
@@ -88,7 +88,7 @@ class TestReadAgentResults(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(data, handle)
 
-            result = _read_agent_results(path)
+            result = read_agent_results(path)
 
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(result.summary, "Did the thing")
@@ -103,8 +103,8 @@ class TestReadAgentResults(unittest.TestCase):
         self.assertEqual(result.usage.cost, 0.12)
         self.assertEqual(result.usage.turns, 1)
 
-    def test_read_agent_results_fallback_summary(self):
-        """_read_agent_results falls back to assistant text when tool call missing."""
+    def testread_agent_results_fallback_summary(self):
+        """read_agent_results falls back to assistant text when tool call missing."""
         messages = [
             {"role": "assistant", "content": [
                 {"type": "text", "text": "Fallback summary"}
@@ -117,13 +117,13 @@ class TestReadAgentResults(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(data, handle)
 
-            result = _read_agent_results(path)
+            result = read_agent_results(path)
 
         self.assertEqual(result.summary, "Fallback summary")
         self.assertEqual(result.notes, "")
 
-    def test_read_agent_results_empty_messages(self):
-        """_read_agent_results returns empty summary when messages are empty."""
+    def testread_agent_results_empty_messages(self):
+        """read_agent_results returns empty summary when messages are empty."""
         data = {"exitCode": 0, "messages": [], "usage": {}}
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -131,26 +131,26 @@ class TestReadAgentResults(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(data, handle)
 
-            result = _read_agent_results(path)
+            result = read_agent_results(path)
 
         self.assertEqual(result.summary, "")
         self.assertEqual(result.notes, "")
         self.assertEqual(result.messages, [])
 
-    def test_read_agent_results_missing_file(self):
-        """_read_agent_results returns error AgentResult when file missing."""
-        result = _read_agent_results("/tmp/does-not-exist-results.json")
+    def testread_agent_results_missing_file(self):
+        """read_agent_results returns error AgentResult when file missing."""
+        result = read_agent_results("/tmp/does-not-exist-results.json")
         self.assertIsNotNone(result.error)
         self.assertIn("Results file not found", result.error)
 
-    def test_read_agent_results_malformed_json(self):
-        """_read_agent_results returns error AgentResult on malformed JSON."""
+    def testread_agent_results_malformed_json(self):
+        """read_agent_results returns error AgentResult on malformed JSON."""
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "results.json")
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write("{this is not json}")
 
-            result = _read_agent_results(path)
+            result = read_agent_results(path)
 
         self.assertIsNotNone(result.error)
         self.assertIn("Malformed JSON", result.error)

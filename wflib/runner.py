@@ -105,7 +105,7 @@ def spawn_headless(
             )
             return AgentResult(exit_code=completed.returncode, error=error)
 
-        return _read_agent_results(results_path)
+        return read_agent_results(results_path)
     except Exception as exc:
         return AgentResult(exit_code=1, error=f"Failed to spawn agent: {exc}")
     finally:
@@ -219,7 +219,7 @@ def spawn_in_tmux(
         )
         tmux.wait_for_exit_code_file(exit_code_file, pane_id)
 
-        return _read_agent_results(results_path)
+        return read_agent_results(results_path)
     except Exception as exc:
         return AgentResult(exit_code=1, error=f"Failed to spawn agent in tmux: {exc}")
     finally:
@@ -233,7 +233,7 @@ def spawn_in_tmux(
             temp_dir.cleanup()
 
 
-def _read_agent_results(results_path: str) -> AgentResult:
+def read_agent_results(results_path: str) -> AgentResult:
     """Read a results.json file into an AgentResult."""
     if not os.path.exists(results_path):
         return AgentResult(
