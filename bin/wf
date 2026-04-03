@@ -913,6 +913,7 @@ def _cmd_close(args):
     from wflib.worktree import (
         commit_or_amend_workflow_files, commit_remaining_changes,
         close_workflow_worktree, cleanup_worktree, WorktreeInfo,
+        workflow_branch_name,
     )
     from wflib.git import get_current_branch, get_head
 
@@ -977,7 +978,7 @@ def _cmd_close(args):
     main_branch = record.workflow.source_branch
     wt = WorktreeInfo(
         path=worktree_path,
-        branch=f"wf-{args.workflow}",
+        branch=workflow_branch_name(args.workflow),
         main_branch=main_branch,
     )
 

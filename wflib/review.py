@@ -258,6 +258,9 @@ def extract_plan_from_messages(messages: list[dict]) -> Plan | None:
     Delegates to extract_tool_call(messages, 'submit_plan') from types.py,
     then converts to Plan via plan_from_json. Returns None if the reviewer
     found no actionable issues (i.e. did not call submit_plan).
+
+    Returns Plan | None (spec says dict | None; Plan is preferred as
+    callers get a validated object).
     """
     plan_data = extract_tool_call(messages, "submit_plan")
     if plan_data is None:

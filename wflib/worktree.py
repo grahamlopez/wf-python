@@ -151,13 +151,23 @@ def cleanup_worktree(main_cwd: str, wt: WorktreeInfo) -> None:
 
 # --- Workflow worktrees (for init/close multi-workflow isolation) ---
 
+
+def workflow_branch_name(workflow_name: str) -> str:
+    """Derive the git branch name for a workflow worktree.
+
+    Centralises the ``wf-<name>`` naming convention so that both
+    ``create_workflow_worktree`` and ``wf close`` use the same logic.
+    """
+    return f"wf-{workflow_name}"
+
+
 def create_workflow_worktree(cwd: str, workflow_name: str) -> WorktreeInfo:
     """Create ../<repo>-wf-<name>/ on branch wf-<name>."""
     main_branch = get_current_branch(cwd)
     repo_root = os.path.abspath(cwd)
     repo_name = os.path.basename(repo_root.rstrip(os.sep))
     worktree_path = os.path.join(os.path.dirname(repo_root), f"{repo_name}-wf-{workflow_name}")
-    branch = f"wf-{workflow_name}"
+    branch = workflow_branch_name(workflow_name)
     wt = WorktreeInfo(path=worktree_path, branch=branch, main_branch=main_branch)
     cleanup_worktree(cwd, wt)
     result = git(["worktree", "add", "-b", branch, worktree_path], cwd=cwd)
