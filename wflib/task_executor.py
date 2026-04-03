@@ -73,8 +73,17 @@ async def run_task(
 
     wt: WorktreeInfo | None = None
     agent_cwd = cwd
+    pre_task_commit: str | None = None
 
     try:
+        # (0) In bare mode, capture HEAD before the agent runs so we can
+        #     diff against it later (committed + uncommitted changes).
+        if not use_worktrees:
+            from wflib.git import git as _git
+            rev = _git(["rev-parse", "HEAD"], cwd=cwd)
+            if rev.ok and rev.stdout.strip():
+                pre_task_commit = rev.stdout.strip()
+
         # (1) Create worktree if config.execute.worktrees
         if use_worktrees:
             wt = _setup_worktree(task, cwd, workflow_id)
@@ -159,7 +168,9 @@ async def run_task(
                 wt.path, wt.main_branch,
             )
         else:
-            files_changed, diff_stat = _capture_diff_stat(cwd, "HEAD")
+            files_changed, diff_stat = _capture_diff_stat(
+                cwd, pre_task_commit or "HEAD",
+            )
 
         # (9) Commit if dirty via worktree.commit_if_dirty
         if wt:
@@ -244,8 +255,10 @@ def _capture_diff_stat(
 
     Uses ``git diff --name-only <main_branch>`` and
     ``git diff --stat <main_branch>`` in the given path.
-    For bare mode (no worktree) the caller passes ``"HEAD"`` as
-    main_branch so the diff shows uncommitted changes.
+    For worktree mode the caller passes the main branch name.
+    For bare mode (no worktree) the caller passes the pre-task
+    commit SHA so the diff captures both committed and uncommitted
+    changes made during the task.
     """
     from wflib.git import git
 
@@ -365,7 +378,9 @@ async def _merge_and_cleanup(
             # Resolution succeeded — stage all, continue rebase, ff-merge
             git(["add", "-A"], cwd=wt.path)
 
-            # Continue the rebase (GIT_EDITOR=true suppresses editor)
+            # Use subprocess.run directly (not git() wrapper) to set
+            # GIT_EDITOR=true, which suppresses the editor during
+            # rebase --continue.
             env = os.environ.copy()
             env["GIT_EDITOR"] = "true"
             subprocess.run(
