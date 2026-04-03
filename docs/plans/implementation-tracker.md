@@ -12,7 +12,7 @@ Tracks progress across all implementation phases. See `wf-spec.md` for the full 
 | 1 | Pure Foundation | **complete** | 6 | types, validate, config, brief, render, templates + unit tests |
 | 2 | Git/IO Layer | **complete** | 7 | git, worktree, record, log + integration tests |
 | 3 | Profiles + Runner | **complete** | 11 | profiles, adapters, runner, tmux + profile/adapter tests |
-| 4a | Orchestration + CLI (core) | not started | 6 | scheduler, task_executor, review, CLI handlers |
+| 4a | Orchestration + CLI (core) | **partial** | 6+4 | scheduler, task_executor, review, CLI handlers |
 | 4b | Orchestration + CLI (validation) | not started | — | E2E tests, help content, completions, deferred items |
 | 5 | Tools + Prompts + Pi Wrapper | not started | — | pi extensions, MCP server, prompts, templates, pi wrapper |
 
@@ -236,10 +236,33 @@ This split improves review quality: 4a gets thorough review before 4b builds on 
 **Resolved early:**
 - **Finding #13:** `bin/wf` now aliases no-args to `wf help topics` and `wf help` routes to the help module
 
-**Started:** —
-**Completed:** —
-**Lessons learned:** —
-**Spec adjustments:** —
+**Started:** 2026-04-03
+**Completed:** — (in progress)
+
+**First execution (6 tasks, $4.45):** 4 of 6 tasks produced no file changes. Only task-3 (scheduler async) and task-4 (review.py) delivered working code. Task-3 over-delivered by also implementing the 4 pure functions that task-1 was supposed to do. Tasks 1, 2, 5, 6 read context but produced no output (model: gpt-5.2-codex via bedrock-claude-opus-4-6 routing).
+
+**What was delivered:**
+- `scheduler.py` (649 lines): All 4 pure functions (get_ready_tasks, skip_dependents, reset_ready_skipped, resolve_task_model) + all 3 async functions (execute_plan, execute_single_task, execute_fixup) + helpers (_build_statuses, _build_summary). Task-3 compensated for task-1's failure.
+- `review.py` (268 lines): build_diff_context, run_review, run_auto_review, extract_plan_from_messages. Uses asyncio.to_thread to wrap synchronous spawn_headless.
+
+**What was NOT delivered (requiring supplementary plan):**
+- `task_executor.py` — still all 5 NotImplementedError stubs
+- `bin/wf` — all 29 CLI handlers still _not_implemented
+- `tests/unit/test_scheduler.py` — not created
+
+**Deviations found in delivered code:**
+1. **`execute_plan` calls `record_task_start` before `run_task`** — the spec's 16-step pipeline has task_start as step 5 inside run_task. The scheduler pre-empted this. Supplementary plan's task_executor implementation must NOT duplicate the call.
+2. **`execute_fixup` doesn't record events** — updates task statuses but doesn't append taskStart/taskComplete events to fixup_impl.events. Fixed in supplementary task-4.
+3. **Crash recovery doesn't check `.sessions/` for orphaned results** — spec says to incorporate orphaned results.json files. Only resets running tasks and cleans worktrees. Fixed in supplementary task-4.
+4. **`review.py` uses `asyncio.to_thread`** — wraps synchronous spawn_headless instead of native async. Acceptable, not a bug.
+
+**Supplementary plan (4 tasks):** Filed to complete the 4 failed tasks plus fix deviations. task-1: task_executor.py, task-2: CLI simple handlers, task-3: CLI exec handlers, task-4: scheduler tests + deviation fixes.
+
+**Lessons learned:**
+- **Silent agent failures are dangerous.** 4 of 6 tasks reported success with no file changes. The planner accepted these as done. Need to treat "completed with no file changes" warnings seriously — they almost certainly mean the agent didn't do its work.
+- **Over-scoped context reading.** The failed tasks spent their turns reading context files but never produced output. The model (routed through bedrock) may have hit output limits or simply run out of turns after reading.
+
+**Spec adjustments:** None needed.
 
 ---
 

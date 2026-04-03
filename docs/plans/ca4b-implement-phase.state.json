@@ -213,14 +213,132 @@
   },
   "planId": "ca4b",
   "statuses": {
-    "task-1": "pending",
-    "task-2": "pending",
-    "task-3": "pending",
-    "task-4": "pending",
-    "task-5": "pending",
-    "task-6": "pending"
+    "task-1": "done",
+    "task-2": "done",
+    "task-3": "done",
+    "task-4": "done",
+    "task-5": "done",
+    "task-6": "done"
   },
-  "results": {},
+  "results": {
+    "task-1": {
+      "taskId": "task-1",
+      "title": "Implement scheduler pure functions",
+      "exitCode": 0,
+      "summary": "",
+      "filesChanged": [],
+      "notes": "",
+      "usage": {
+        "input": 3,
+        "output": 225,
+        "cacheRead": 4510,
+        "cacheWrite": 12283,
+        "cost": 0.08466375000000001,
+        "turns": 2
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6"
+    },
+    "task-4": {
+      "taskId": "task-4",
+      "title": "Implement review.py — diff context and review orchestration",
+      "exitCode": 0,
+      "summary": "Implemented all four functions in `wflib/review.py`: `build_diff_context` builds markdown with commit log, diff stat, and full diff sections (capped at 100KB, falls back to uncommitted changes); `run_review` spawns a review agent using `prompts/reviewer.md`; `run_auto_review` spawns with `prompts/reviewer-with-plan.md` and extracts a fixup Plan from `submit_plan` tool calls; `extract_plan_from_messages` delegates to `extract_tool_call` and converts via `plan_from_json`.",
+      "filesChanged": [
+        "wflib/review.py"
+      ],
+      "notes": "- The `run_review` and `run_auto_review` functions use `asyncio.to_thread` to wrap the synchronous `runner.spawn_headless` call, matching the async signatures required by the spec.\n- `build_diff_context` handles both the base_commit case (commit log + diff between base and HEAD) and the fallback case (uncommitted + staged changes), with 100KB cap on diff text.\n- `extract_plan_from_messages` gracefully returns `None` on invalid plan data (ValueError/TypeError from schema validation), consistent with the spec pattern where absence of `submit_plan` means no actionable findings.",
+      "usage": {
+        "input": 28,
+        "output": 6746,
+        "cacheRead": 697191,
+        "cacheWrite": 35609,
+        "cost": 0.7399417500000001,
+        "turns": 27
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "wflib/review.py | 234 +++++++++++++++++++++++++++++++++++++++++++++++++++++---\n 1 file changed, 224 insertions(+), 10 deletions(-)"
+    },
+    "task-2": {
+      "taskId": "task-2",
+      "title": "Implement task_executor.py — per-task lifecycle",
+      "exitCode": 0,
+      "summary": "",
+      "filesChanged": [],
+      "notes": "",
+      "usage": {
+        "input": 22,
+        "output": 3195,
+        "cacheRead": 438495,
+        "cacheWrite": 32931,
+        "cost": 0.50505125,
+        "turns": 19
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "wflib/review.py | 234 +++-----------------------------------------------------\n 1 file changed, 10 insertions(+), 224 deletions(-)"
+    },
+    "task-5": {
+      "taskId": "task-5",
+      "title": "CLI handlers — init, submit-plan, record-brainstorm, query commands, utilities",
+      "exitCode": 0,
+      "summary": "Not stuck — just finished reading all the context. Implementing now.",
+      "filesChanged": [],
+      "notes": "",
+      "usage": {
+        "input": 23,
+        "output": 2078,
+        "cacheRead": 759315,
+        "cacheWrite": 123413,
+        "cost": 1.20305375,
+        "turns": 20
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "wflib/review.py | 234 +++-----------------------------------------------------\n 1 file changed, 10 insertions(+), 224 deletions(-)"
+    },
+    "task-3": {
+      "taskId": "task-3",
+      "title": "Implement scheduler async execute functions",
+      "exitCode": 0,
+      "summary": "Implemented all three async scheduling functions (`execute_plan`, `execute_single_task`, `execute_fixup`) and four pure helper functions (`get_ready_tasks`, `skip_dependents`, `reset_ready_skipped`, `resolve_task_model`) in `wflib/scheduler.py`.",
+      "filesChanged": [
+        "wflib/scheduler.py",
+        "get_ready_tasks",
+        "skip_dependents",
+        "reset_ready_skipped",
+        "resolve_task_model",
+        "execute_plan",
+        "execute_single_task",
+        "execute_fixup"
+      ],
+      "notes": "- All heavy imports (`record`, `config`, `git`, `worktree`, `task_executor`) are deferred inside the async functions to avoid circular imports, matching the project's existing pattern.\n- `task_executor.run_task` is still a `NotImplementedError` stub — the scheduler delegates to it but can't actually execute tasks until that's implemented by the parallel task.\n- The `_build_statuses` and `_build_summary` private helpers were added to reduce duplication between `execute_plan` and `execute_fixup`.",
+      "usage": {
+        "input": 27,
+        "output": 10892,
+        "cacheRead": 929404,
+        "cacheWrite": 95906,
+        "cost": 1.3365495,
+        "turns": 26
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "wflib/scheduler.py | 617 ++++++++++++++++++++++++++++++++++++++++++++++++++---\n 1 file changed, 591 insertions(+), 26 deletions(-)"
+    },
+    "task-6": {
+      "taskId": "task-6",
+      "title": "CLI handlers — execute, execute-task, review, auto-review, close, recover, run, brainstorm, plan",
+      "exitCode": 0,
+      "summary": "Now let me look at what",
+      "filesChanged": [],
+      "notes": "",
+      "usage": {
+        "input": 12,
+        "output": 1370,
+        "cacheRead": 360099,
+        "cacheWrite": 58666,
+        "cost": 0.581022,
+        "turns": 11
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6"
+    }
+  },
   "planningUsage": {
     "input": 0,
     "output": 0,
@@ -230,5 +348,6 @@
     "turns": 0
   },
   "planningModel": "nvinf-anthropic/aws/anthropic/bedrock-claude-opus-4-6",
-  "planFile": "docs/plans/ca4b-implement-phase.md"
+  "planFile": "docs/plans/ca4b-implement-phase.md",
+  "baseCommit": "b8daa715e69da3493e7412ca1e4e840f2cca6765"
 }
