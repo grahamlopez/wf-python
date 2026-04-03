@@ -30,26 +30,1329 @@ Usage:
 """
 
 import argparse
+import asyncio
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 # Add repo root to sys.path so wflib, profiles, adapters are importable.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+sys.path.insert(0, _REPO_ROOT)
 
-from wflib.help import help_command
 
+# ---------------------------------------------------------------------------
+# Error helpers
+# ---------------------------------------------------------------------------
 
-def _not_implemented(args):
-    """Default handler for all subcommands — prints error JSON and exits 1."""
-    print(json.dumps({"error": "not implemented"}))
+def _error_exit(message):
+    """Print JSON error to stdout and exit 1."""
+    print(json.dumps({"error": str(message)}))
     sys.exit(1)
 
 
-def _help_entry(args):
+# ---------------------------------------------------------------------------
+# CLI handler: wf init
+# ---------------------------------------------------------------------------
+
+def _cmd_init(args):
+    from wflib.config import resolve_config
+    from wflib.git import get_current_branch, get_head
+    from wflib.record import create_record, save_record, record_path
+    from wflib.worktree import commit_or_amend_workflow_files, create_workflow_worktree, setup_worktree
+
+    cwd = os.path.abspath(args.cwd)
+
+    # Validate git repo
+    result = subprocess.run(
+        ["git", "rev-parse", "--git-dir"],
+        cwd=cwd, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        _error_exit("Not a git repository")
+
+    try:
+        config = resolve_config(cwd, args.set_overrides)
+    except Exception as exc:
+        _error_exit(f"Config error: {exc}")
+
+    # If --no-worktree flag, override config
+    if args.no_worktree:
+        from wflib.config import apply_cli_overrides
+        config = apply_cli_overrides(config, worktrees=False)
+
+    try:
+        branch = get_current_branch(cwd)
+        commit = get_head(cwd)
+    except Exception as exc:
+        _error_exit(f"Git error: {exc}")
+
+    try:
+        record = create_record(
+            name=args.name,
+            cwd=cwd,
+            source_branch=branch,
+            source_commit=commit,
+            config=config,
+        )
+    except FileExistsError:
+        _error_exit(f"Workflow '{args.name}' already exists")
+    except Exception as exc:
+        _error_exit(str(exc))
+
+    # Commit the record so worktree branches from a state that includes it
+    try:
+        commit_or_amend_workflow_files(cwd, args.name)
+    except Exception as exc:
+        _error_exit(f"Failed to commit record: {exc}")
+
+    # Create workflow worktree unless disabled
+    worktree = None
+    if config.execute.worktrees and not args.no_worktree:
+        try:
+            wt = create_workflow_worktree(cwd, args.name)
+            worktree = wt.path
+            record.workflow.worktree = worktree
+            save_record(record, cwd)
+            commit_or_amend_workflow_files(cwd, args.name)
+            setup_worktree(cwd, wt.path)
+        except Exception as exc:
+            _error_exit(f"Failed to create worktree: {exc}")
+
+    print(json.dumps({
+        "workflowId": record.workflow.id,
+        "recordFile": record_path(args.name, cwd),
+        "worktree": worktree,
+    }))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf submit-plan
+# ---------------------------------------------------------------------------
+
+def _cmd_submit_plan(args):
+    from wflib.record import load_record, save_record, record_plan
+    from wflib.types import plan_from_json, Usage, WorkflowStatus, TaskStatus, _dict_to_dataclass
+    from wflib.validate import validate_plan, ValidationError
+    from wflib.worktree import commit_or_amend_workflow_files
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    # Read plan from stdin
+    try:
+        data = json.load(sys.stdin)
+    except json.JSONDecodeError as exc:
+        _error_exit(f"Invalid JSON on stdin: {exc}")
+
+    try:
+        plan = plan_from_json(data)
+    except (ValueError, TypeError) as exc:
+        _error_exit(f"Invalid plan data: {exc}")
+
+    # Validate
+    warnings = []
+    try:
+        result = validate_plan(plan)
+        warnings = result.warnings
+    except ValidationError as exc:
+        errors = exc.result.errors
+        _error_exit(f"Plan validation failed: {'; '.join(errors)}")
+    except ValueError as exc:
+        _error_exit(f"Plan validation failed: {exc}")
+
+    # Re-submission policy
+    status = record.workflow.status
+    if status in (WorkflowStatus.REVIEWING, WorkflowStatus.CLOSING, WorkflowStatus.DONE):
+        _error_exit(
+            f"Plan submission rejected: workflow has moved past implementation "
+            f"(status: {status.value}). Start a new workflow with wf init."
+        )
+
+    if status == WorkflowStatus.IMPLEMENTING:
+        impl = record.implementation
+        if impl:
+            non_pending = [
+                tid for tid, r in impl.tasks.items()
+                if r.status not in (TaskStatus.PENDING,)
+            ]
+            if non_pending:
+                warnings.append(
+                    f"Replacing plan with {len(non_pending)} completed tasks. "
+                    f"Prior results discarded."
+                )
+
+    # Parse usage if provided
+    usage = Usage()
+    if args.usage:
+        try:
+            usage_data = json.loads(args.usage)
+            usage = _dict_to_dataclass(Usage, usage_data)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass  # Best effort
+
+    record_plan(record, plan, usage)
+    save_record(record, cwd)
+
+    try:
+        commit_or_amend_workflow_files(cwd, args.workflow)
+    except Exception:
+        pass  # Best effort
+
+    # Print warnings to stderr
+    for w in warnings:
+        sys.stderr.write(f"Warning: {w}\n")
+
+    print(json.dumps({
+        "message": f"Plan submitted with {len(plan.tasks)} tasks",
+        "status": record.workflow.status.value,
+        "warnings": warnings,
+    }))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf record-brainstorm
+# ---------------------------------------------------------------------------
+
+def _cmd_record_brainstorm(args):
+    from wflib.record import load_record, save_record, record_brainstorm
+    from wflib.types import DesignDecision, Usage, _dict_to_dataclass
+    from wflib.worktree import commit_or_amend_workflow_files
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    # Read brainstorm from stdin
+    try:
+        data = json.load(sys.stdin)
+    except json.JSONDecodeError as exc:
+        _error_exit(f"Invalid JSON on stdin: {exc}")
+
+    motivation = data.get("motivation", "")
+    solution = data.get("solution", "")
+    raw_decisions = data.get("designDecisions", [])
+
+    if not motivation:
+        _error_exit("Missing required field: motivation")
+    if not solution:
+        _error_exit("Missing required field: solution")
+
+    design_decisions = []
+    for d in raw_decisions:
+        design_decisions.append(DesignDecision(
+            decision=d.get("decision", ""),
+            rationale=d.get("rationale", ""),
+        ))
+
+    # Parse usage if provided
+    usage = Usage()
+    if args.usage:
+        try:
+            usage_data = json.loads(args.usage)
+            usage = _dict_to_dataclass(Usage, usage_data)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    record_brainstorm(record, motivation, solution, design_decisions, usage)
+    save_record(record, cwd)
+
+    try:
+        commit_or_amend_workflow_files(cwd, args.workflow)
+    except Exception:
+        pass
+
+    print(json.dumps({
+        "message": "Brainstorm recorded",
+        "status": record.workflow.status.value,
+    }))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf status
+# ---------------------------------------------------------------------------
+
+def _cmd_status(args):
+    from wflib.record import load_record
+    from wflib.render import format_status
+    from wflib.types import record_to_json
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    if getattr(args, 'json', False):
+        print(json.dumps(record_to_json(record), indent=2))
+    else:
+        print(format_status(record))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf list
+# ---------------------------------------------------------------------------
+
+def _cmd_list(args):
+    from wflib.record import list_records
+    from wflib.render import format_history_table
+    from wflib.types import WorkflowStatus, record_to_json
+
+    cwd = os.path.abspath(args.cwd)
+    records = list_records(cwd)
+
+    if not getattr(args, 'all', False):
+        records = [
+            r for r in records
+            if r.workflow.status not in (WorkflowStatus.DONE, WorkflowStatus.FAILED)
+        ]
+
+    if getattr(args, 'json', False):
+        print(json.dumps([record_to_json(r) for r in records], indent=2))
+    else:
+        if not records:
+            print("No workflows found.")
+        else:
+            print(format_history_table(records))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf history
+# ---------------------------------------------------------------------------
+
+def _cmd_history(args):
+    from wflib.record import list_records
+    from wflib.render import format_history_table
+    from wflib.types import record_to_json
+
+    cwd = os.path.abspath(args.cwd)
+    records = list_records(cwd)
+
+    limit = getattr(args, 'limit', 20) or 20
+
+    if getattr(args, 'json', False):
+        print(json.dumps([record_to_json(r) for r in records[:limit]], indent=2))
+    else:
+        if not records:
+            print("No workflows found.")
+        else:
+            print(format_history_table(records, limit=limit))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf render
+# ---------------------------------------------------------------------------
+
+def _cmd_render(args):
+    from wflib.record import load_record
+    from wflib.render import render_record_markdown
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    print(render_record_markdown(record))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf validate
+# ---------------------------------------------------------------------------
+
+def _cmd_validate(args):
+    from wflib.types import plan_from_json
+    from wflib.validate import validate_plan, ValidationError
+
+    try:
+        with open(args.file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        _error_exit(f"File not found: {args.file}")
+    except json.JSONDecodeError as exc:
+        _error_exit(f"Invalid JSON: {exc}")
+
+    try:
+        plan = plan_from_json(data)
+    except (ValueError, TypeError) as exc:
+        _error_exit(f"Invalid plan data: {exc}")
+
+    try:
+        result = validate_plan(plan)
+    except ValidationError as exc:
+        for e in exc.result.errors:
+            print(f"Error: {e}")
+        for w in exc.result.warnings:
+            print(f"Warning: {w}")
+        sys.exit(1)
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    for w in result.warnings:
+        print(f"Warning: {w}")
+    print("Valid")
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf brief
+# ---------------------------------------------------------------------------
+
+def _cmd_brief(args):
+    from wflib.brief import assemble_task_brief
+    from wflib.record import load_record, get_plan, get_implementation_state
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    plan = get_plan(record)
+    if plan is None:
+        _error_exit("No plan found in record")
+
+    task = None
+    for t in plan.tasks:
+        if t.id == args.task_id:
+            task = t
+            break
+    if task is None:
+        _error_exit(f"Task '{args.task_id}' not found in plan")
+
+    results = get_implementation_state(record)
+    brief = assemble_task_brief(task, plan, results)
+    print(brief)
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf schema
+# ---------------------------------------------------------------------------
+
+def _cmd_schema(args):
+    schema_path = os.path.join(_REPO_ROOT, "schemas", "workflow.schema.json")
+
+    try:
+        with open(schema_path, "r", encoding="utf-8") as f:
+            schema = json.load(f)
+    except FileNotFoundError:
+        _error_exit(f"Schema file not found: {schema_path}")
+
+    if not args.component:
+        print(json.dumps(schema, indent=2))
+        return
+
+    # Map component name to $defs key
+    component_map = {
+        "plan": "Plan",
+        "brainstorm": "Brainstorm",
+        "task": "Task",
+        "report-result": "ReportResult",
+        "usage": "Usage",
+    }
+
+    key = component_map.get(args.component)
+    if key is None:
+        _error_exit(
+            f"Unknown component '{args.component}'. "
+            f"Available: {', '.join(sorted(component_map.keys()))}"
+        )
+
+    defs = schema.get("$defs", {})
+    component_schema = defs.get(key)
+    if component_schema is None:
+        _error_exit(f"Component '{key}' not found in $defs")
+
+    # Inline $ref references
+    def _inline_refs(obj, all_defs):
+        if isinstance(obj, dict):
+            if "$ref" in obj:
+                ref_path = obj["$ref"]
+                # e.g. "#/$defs/Task"
+                if ref_path.startswith("#/$defs/"):
+                    ref_name = ref_path[len("#/$defs/"):]
+                    resolved = all_defs.get(ref_name)
+                    if resolved is not None:
+                        return _inline_refs(resolved, all_defs)
+                return obj
+            return {k: _inline_refs(v, all_defs) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_inline_refs(item, all_defs) for item in obj]
+        return obj
+
+    inlined = _inline_refs(component_schema, defs)
+    print(json.dumps(inlined, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf config
+# ---------------------------------------------------------------------------
+
+def _cmd_config_list(args):
+    from wflib.config import resolve_config, show_resolved, show_with_origins
+
+    cwd = os.path.abspath(args.cwd)
+
+    if getattr(args, 'show_origin', False):
+        print(show_with_origins(cwd))
+    else:
+        try:
+            config = resolve_config(cwd)
+        except Exception as exc:
+            _error_exit(str(exc))
+        print(show_resolved(config))
+
+
+def _cmd_config_get(args):
+    from wflib.config import resolve_config, config_to_dict
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        config = resolve_config(cwd)
+    except Exception as exc:
+        _error_exit(str(exc))
+
+    d = config_to_dict(config)
+    parts = args.key.split(".")
+
+    current = d
+    for part in parts:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        else:
+            _error_exit(f"Unknown config key: {args.key}")
+    print(current)
+
+
+def _cmd_config_set(args):
+    from wflib.config import set_config_value
+
+    assignment = args.assignment
+    if "=" not in assignment:
+        _error_exit("Expected KEY=VALUE format")
+
+    key, _, value = assignment.partition("=")
+    key = key.strip()
+    value = value.strip()
+
+    if not key:
+        _error_exit("Empty key")
+
+    # Determine scope
+    scope = "user"
+    if getattr(args, 'project', False):
+        scope = "project"
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        set_config_value(cwd, key, value, scope)
+    except Exception as exc:
+        _error_exit(str(exc))
+
+    print(f"Set {key} = {value} ({scope})")
+
+
+def _cmd_config(args):
+    if not hasattr(args, 'config_command') or args.config_command is None:
+        from wflib.config import resolve_config, show_resolved
+        try:
+            config = resolve_config(os.path.abspath(args.cwd if hasattr(args, 'cwd') else "."))
+        except Exception as exc:
+            _error_exit(str(exc))
+        print(show_resolved(config))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf template
+# ---------------------------------------------------------------------------
+
+def _cmd_template_list(args):
+    from wflib.templates import list_templates
+
+    cwd = os.path.abspath(args.cwd)
+    templates = list_templates(cwd)
+
+    if not templates:
+        print("No templates found.")
+        return
+
+    # Print table
+    max_name = max(len(t.name) for t in templates)
+    for t in templates:
+        source_tag = f" [{t.source}]" if t.source else ""
+        desc = t.description or ""
+        print(f"  {t.name:<{max_name}}  {desc}{source_tag}")
+
+
+def _cmd_template_show(args):
+    from wflib.templates import load_template
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        template = load_template(args.name, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Template '{args.name}' not found")
+
+    print(template.raw_content)
+
+
+def _cmd_template_render(args):
+    from wflib.templates import load_template, render_template
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        template = load_template(args.name, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Template '{args.name}' not found")
+
+    rendered = render_template(template, args.args or [])
+    print(rendered)
+
+
+def _cmd_template(args):
+    if not hasattr(args, 'template_command') or args.template_command is None:
+        _cmd_template_list(args)
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf completions
+# ---------------------------------------------------------------------------
+
+def _cmd_completions(args):
+    from wflib.completions import generate_bash, generate_zsh, generate_fish
+
+    generators = {
+        "bash": generate_bash,
+        "zsh": generate_zsh,
+        "fish": generate_fish,
+    }
+    gen = generators.get(args.shell)
+    if gen is None:
+        _error_exit(f"Unknown shell: {args.shell}")
+    try:
+        print(gen())
+    except NotImplementedError:
+        _error_exit(f"Completions for {args.shell} not yet implemented")
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf execute
+# ---------------------------------------------------------------------------
+
+def _cmd_execute(args):
+    from wflib.record import load_record, save_record
+    from wflib.scheduler import execute_plan
+    from wflib.config import apply_cli_overrides
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    # Build cli_overrides dict
+    cli_overrides = {}
+    if args.model:
+        cli_overrides["model_implement"] = args.model
+    if args.concurrency is not None:
+        cli_overrides["concurrency"] = args.concurrency
+    if args.no_worktrees:
+        cli_overrides["worktrees"] = False
+    if args.no_tmux:
+        cli_overrides["tmux"] = False
+    if args.profile:
+        cli_overrides["profile"] = args.profile
+    if args.auto_close is not None:
+        cli_overrides["auto_close"] = args.auto_close
+
+    try:
+        summary = asyncio.run(execute_plan(record, cwd, cli_overrides or None))
+    except Exception as exc:
+        save_record(record, cwd)
+        _error_exit(str(exc))
+
+    save_record(record, cwd)
+
+    # Auto-review if enabled
+    if getattr(args, 'auto_review', False) or record.workflow.config.execute.auto_review:
+        if summary.counts.get("failed", 0) == 0 and summary.counts.get("done", 0) > 0:
+            try:
+                _do_auto_review(record, cwd, args)
+                save_record(record, cwd)
+            except Exception as exc:
+                sys.stderr.write(f"Auto-review failed: {exc}\n")
+
+    print(json.dumps({
+        "counts": summary.counts,
+        "duration": summary.duration_seconds,
+        "usageRows": [
+            {
+                "label": r.label, "input": r.input, "output": r.output,
+                "cacheRead": r.cache_read, "cacheWrite": r.cache_write,
+                "cost": r.cost, "turns": r.turns, "model": r.model,
+            }
+            for r in summary.usage_rows
+        ],
+    }))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf execute-task
+# ---------------------------------------------------------------------------
+
+def _cmd_execute_task(args):
+    from wflib.record import load_record, save_record
+    from wflib.scheduler import execute_single_task
+    from wflib.types import _dataclass_to_dict
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    cli_overrides = {}
+    if args.model:
+        cli_overrides["model_implement"] = args.model
+    if args.no_tmux:
+        cli_overrides["tmux"] = False
+
+    try:
+        result = asyncio.run(execute_single_task(record, args.task_id, cwd, cli_overrides or None))
+    except Exception as exc:
+        save_record(record, cwd)
+        _error_exit(str(exc))
+
+    save_record(record, cwd)
+    print(json.dumps(_dataclass_to_dict(result)))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf review
+# ---------------------------------------------------------------------------
+
+def _cmd_review(args):
+    from wflib.record import load_record, save_record, record_review
+    from wflib.review import run_review
+    from wflib.config import apply_cli_overrides
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    config = record.workflow.config
+    base_commit = None
+    if record.implementation:
+        base_commit = record.implementation.base_commit
+    if getattr(args, 'ref', None):
+        base_commit = args.ref
+
+    try:
+        result = asyncio.run(run_review(
+            cwd=cwd,
+            config=config,
+            base_commit=base_commit,
+            description=getattr(args, 'desc', None),
+            scope=getattr(args, 'scope', None),
+            cli_model=getattr(args, 'model', None),
+        ))
+    except Exception as exc:
+        _error_exit(str(exc))
+
+    record_review(
+        record,
+        review_text=result.review_text,
+        findings_actionable=False,
+        usage=result.usage,
+        base_commit=base_commit,
+    )
+    save_record(record, cwd)
+    print(result.review_text)
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf auto-review
+# ---------------------------------------------------------------------------
+
+def _do_auto_review(record, cwd, args):
+    """Shared auto-review logic for wf auto-review and wf execute --auto-review."""
+    from wflib.record import save_record, record_review
+    from wflib.review import run_auto_review
+    from wflib.scheduler import execute_fixup
+
+    config = record.workflow.config
+    base_commit = None
+    if record.implementation:
+        base_commit = record.implementation.base_commit
+
+    result = asyncio.run(run_auto_review(
+        cwd=cwd,
+        config=config,
+        base_commit=base_commit,
+        cli_model=getattr(args, 'model', None) if hasattr(args, 'model') else None,
+    ))
+
+    findings_actionable = result.plan is not None
+    review_rec = record_review(
+        record,
+        review_text=result.review_text,
+        findings_actionable=findings_actionable,
+        usage=result.usage,
+        base_commit=base_commit,
+        fixup_plan=result.plan,
+    )
+    save_record(record, cwd)
+
+    if result.plan is not None:
+        cli_overrides = {}
+        if hasattr(args, 'fixup_model') and args.fixup_model:
+            cli_overrides["fixup_model"] = args.fixup_model
+        if hasattr(args, 'fixup_concurrency') and args.fixup_concurrency:
+            cli_overrides["concurrency"] = args.fixup_concurrency
+
+        fixup_summary = asyncio.run(execute_fixup(
+            review_rec, record, cwd, cli_overrides or None,
+        ))
+        save_record(record, cwd)
+        return result, fixup_summary
+
+    return result, None
+
+
+def _cmd_auto_review(args):
+    from wflib.record import load_record, save_record
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    try:
+        result, fixup_summary = _do_auto_review(record, cwd, args)
+    except Exception as exc:
+        save_record(record, cwd)
+        _error_exit(str(exc))
+
+    save_record(record, cwd)
+
+    output = {
+        "reviewText": result.review_text,
+        "findingsActionable": result.plan is not None,
+        "fixupCounts": fixup_summary.counts if fixup_summary else None,
+    }
+    print(json.dumps(output))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf close
+# ---------------------------------------------------------------------------
+
+def _cmd_close(args):
+    from wflib.record import load_record, save_record, record_close
+    from wflib.worktree import (
+        commit_or_amend_workflow_files, commit_remaining_changes,
+        close_workflow_worktree, cleanup_worktree, WorktreeInfo,
+    )
+    from wflib.git import get_current_branch, get_head
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    # Clean up .sessions/ directory
+    sessions_dir = os.path.join(
+        cwd, "docs", "workflows", ".sessions", args.workflow
+    )
+    if os.path.isdir(sessions_dir):
+        for fname in os.listdir(sessions_dir):
+            fpath = os.path.join(sessions_dir, fname)
+            if fname.endswith(".jsonl"):
+                sys.stderr.write(
+                    f"Removing preserved session: {fpath}\n"
+                )
+            try:
+                os.remove(fpath)
+            except OSError:
+                pass
+        try:
+            shutil.rmtree(sessions_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    # Commit changes
+    try:
+        commit_or_amend_workflow_files(cwd, args.workflow)
+    except Exception:
+        pass
+    try:
+        commit_remaining_changes(cwd, f"[workflow-close] {args.workflow}: final changes")
+    except Exception:
+        pass
+
+    worktree_path = record.workflow.worktree
+
+    if worktree_path is None:
+        # Bare mode — no worktree to merge
+        final_commit = get_head(cwd)
+        record_close(record, "clean", final_commit, "")
+        save_record(record, cwd)
+        try:
+            commit_or_amend_workflow_files(cwd, args.workflow)
+        except Exception:
+            pass
+        print(json.dumps({
+            "mergeResult": "clean",
+            "finalCommit": final_commit,
+            "diffStat": "",
+        }))
+        return
+
+    # Worktree mode — merge back
+    main_branch = record.workflow.source_branch
+    wt = WorktreeInfo(
+        path=worktree_path,
+        branch=f"wf-{args.workflow}",
+        main_branch=main_branch,
+    )
+
+    # Find the main repo (parent of worktree)
+    main_cwd = os.path.dirname(worktree_path.rstrip(os.sep))
+    # Actually, the main repo is at record.workflow.project
+    main_cwd = record.workflow.project
+
+    try:
+        close_result = close_workflow_worktree(main_cwd, wt)
+    except Exception as exc:
+        _error_exit(f"Merge failed: {exc}")
+
+    if close_result.merge_state == "clean":
+        # Clean merge — cleanup worktree
+        try:
+            cleanup_worktree(main_cwd, wt)
+        except Exception:
+            pass
+
+        final_commit = get_head(main_cwd)
+        record_close(record, "clean", final_commit, close_result.diff_stat)
+        # Save to main repo since worktree is gone
+        save_record(record, main_cwd)
+        try:
+            commit_or_amend_workflow_files(main_cwd, args.workflow)
+        except Exception:
+            pass
+
+        print(json.dumps({
+            "mergeResult": "clean",
+            "finalCommit": final_commit,
+            "diffStat": close_result.diff_stat,
+        }))
+    elif close_result.merge_state == "conflicted":
+        from wflib.types import WorkflowStatus
+        record.workflow.status = WorkflowStatus.FAILED
+        save_record(record, cwd)
+
+        print(json.dumps({
+            "mergeResult": "conflicted",
+            "finalCommit": None,
+            "diffStat": close_result.diff_stat,
+            "conflictFiles": close_result.conflict_files,
+        }))
+    else:
+        _error_exit(f"Merge failed: {close_result.conflicts}")
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf recover
+# ---------------------------------------------------------------------------
+
+def _cmd_recover(args):
+    from wflib.record import load_record, save_record, record_event, clear_active_resource
+    from wflib.types import TaskStatus, ImplementationEventType
+    from wflib.worktree import cleanup_worktree, WorktreeInfo
+    from wflib.git import get_current_branch
+    from wflib.runner import _read_agent_results
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    if record.implementation is None:
+        print(json.dumps({"cleanedWorktrees": [], "resetTasks": [], "incorporatedResults": []}))
+        return
+
+    impl = record.implementation
+    cleaned_worktrees = []
+    reset_tasks = []
+    incorporated_results = []
+
+    # Check .sessions/ for orphaned results
+    sessions_dir = os.path.join(cwd, "docs", "workflows", ".sessions", args.workflow)
+
+    for task_id, result in impl.tasks.items():
+        if result.status != TaskStatus.RUNNING:
+            continue
+
+        # Check for orphaned results.json
+        if os.path.isdir(sessions_dir):
+            results_file = os.path.join(sessions_dir, f"{task_id}.results.json")
+            if os.path.isfile(results_file):
+                try:
+                    agent_result = _read_agent_results(results_file)
+                    result.summary = agent_result.summary
+                    result.notes = agent_result.notes
+                    result.usage = agent_result.usage
+                    incorporated_results.append(task_id)
+                    os.remove(results_file)
+                except Exception:
+                    pass
+
+        # Clean up orphaned worktree
+        wt_path = impl.active_resources.get(task_id)
+        if wt_path and os.path.isdir(wt_path):
+            try:
+                branch = f"wf-{record.workflow.id}-{task_id}"
+                main_branch = get_current_branch(cwd)
+                wt = WorktreeInfo(path=wt_path, branch=branch, main_branch=main_branch)
+                cleanup_worktree(cwd, wt)
+                cleaned_worktrees.append(wt_path)
+            except Exception:
+                pass
+
+        # Reset to pending
+        result.status = TaskStatus.PENDING
+        result.started_at = None
+        clear_active_resource(record, task_id)
+        reset_tasks.append(task_id)
+
+        record_event(
+            record,
+            ImplementationEventType.CRASH_RECOVERY,
+            task=task_id,
+            detail="Reset running task to pending after crash recovery",
+        )
+
+    save_record(record, cwd)
+
+    print(json.dumps({
+        "cleanedWorktrees": cleaned_worktrees,
+        "resetTasks": reset_tasks,
+        "incorporatedResults": incorporated_results,
+    }))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf brainstorm
+# ---------------------------------------------------------------------------
+
+def _cmd_brainstorm(args):
+    from wflib.record import load_record, save_record, record_brainstorm
+    from wflib.runner import spawn_headless
+    from wflib.types import extract_tool_call, DesignDecision
+    from wflib.worktree import commit_or_amend_workflow_files
+    from profiles import get_profile, wf_dir
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    config = record.workflow.config
+    profile = get_profile(config.agent.profile)
+    model = getattr(args, 'model', None) or config.model.brainstorm
+
+    prompt = getattr(args, 'prompt', None) or ""
+    if not prompt and getattr(args, 'no_tmux', False):
+        _error_exit("--prompt is required for headless brainstorm (--no-tmux)")
+
+    # Load system prompt
+    prompt_path = os.path.join(wf_dir(), "prompts", "brainstorm.md")
+    try:
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            system_prompt = f.read()
+    except FileNotFoundError:
+        system_prompt = "You are a brainstorming assistant. Call record_brainstorm when you have conclusions."
+
+    result = spawn_headless(
+        cwd=cwd,
+        prompt=prompt,
+        system_prompt=system_prompt,
+        profile=profile,
+        tools=[],
+        model=model,
+        models_config=config.models,
+    )
+
+    # Extract record_brainstorm tool call
+    tool_args = extract_tool_call(result.messages, "record_brainstorm")
+    if tool_args is None:
+        print(json.dumps({
+            "message": "Brainstorm session ended",
+            "warning": "record_brainstorm not called",
+        }))
+        return
+
+    motivation = tool_args.get("motivation", "")
+    solution = tool_args.get("solution", "")
+    raw_decisions = tool_args.get("designDecisions", [])
+    design_decisions = [
+        DesignDecision(decision=d.get("decision", ""), rationale=d.get("rationale", ""))
+        for d in raw_decisions
+    ]
+
+    from wflib.types import Usage, _dict_to_dataclass
+    record_brainstorm(record, motivation, solution, design_decisions, result.usage)
+    save_record(record, cwd)
+
+    try:
+        commit_or_amend_workflow_files(cwd, args.workflow)
+    except Exception:
+        pass
+
+    print(json.dumps({
+        "message": "Brainstorm recorded",
+        "status": record.workflow.status.value,
+    }))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf plan
+# ---------------------------------------------------------------------------
+
+def _cmd_plan(args):
+    from wflib.record import load_record, save_record, record_plan
+    from wflib.runner import spawn_headless
+    from wflib.types import extract_tool_call, plan_from_json, Usage
+    from wflib.validate import validate_plan, ValidationError
+    from wflib.worktree import commit_or_amend_workflow_files
+    from profiles import get_profile, wf_dir
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    config = record.workflow.config
+    profile = get_profile(config.agent.profile)
+    model = getattr(args, 'model', None) or config.model.plan
+
+    # Build prompt from brainstorm context + --prompt
+    prompt_parts = []
+    if record.brainstorm:
+        prompt_parts.append(f"## Brainstorm Context\n\nMotivation: {record.brainstorm.motivation}\n\nSolution: {record.brainstorm.solution}")
+    if getattr(args, 'prompt', None):
+        prompt_parts.append(args.prompt)
+    prompt = "\n\n".join(prompt_parts) if prompt_parts else ""
+
+    if not prompt and getattr(args, 'no_tmux', False):
+        _error_exit("--prompt is required for headless planning (--no-tmux)")
+
+    # Load system prompt
+    prompt_path = os.path.join(wf_dir(), "prompts", "planning-context.md")
+    try:
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            system_prompt = f.read()
+    except FileNotFoundError:
+        system_prompt = "You are a planning assistant. Call submit_plan when your plan is ready."
+
+    result = spawn_headless(
+        cwd=cwd,
+        prompt=prompt,
+        system_prompt=system_prompt,
+        profile=profile,
+        tools=[],
+        model=model,
+        models_config=config.models,
+    )
+
+    # Extract submit_plan tool call
+    tool_args = extract_tool_call(result.messages, "submit_plan")
+    if tool_args is None:
+        print(json.dumps({
+            "message": "Planning session ended",
+            "warning": "submit_plan not called",
+        }))
+        return
+
+    try:
+        plan = plan_from_json(tool_args)
+    except (ValueError, TypeError) as exc:
+        _error_exit(f"Invalid plan from agent: {exc}")
+
+    try:
+        validate_plan(plan)
+    except ValidationError as exc:
+        _error_exit(f"Plan validation failed: {'; '.join(exc.result.errors)}")
+
+    record_plan(record, plan, result.usage)
+    save_record(record, cwd)
+
+    try:
+        commit_or_amend_workflow_files(cwd, args.workflow)
+    except Exception:
+        pass
+
+    print(json.dumps({
+        "message": f"Plan submitted with {len(plan.tasks)} tasks",
+        "status": record.workflow.status.value,
+    }))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf run
+# ---------------------------------------------------------------------------
+
+def _cmd_run(args):
+    from wflib.record import load_record, save_record
+    from wflib.types import WorkflowStatus, AutomationLevel
+
+    cwd = os.path.abspath(args.cwd)
+
+    try:
+        record = load_record(args.workflow, cwd)
+    except FileNotFoundError:
+        _error_exit(f"Workflow '{args.workflow}' not found")
+    except ValueError as exc:
+        _error_exit(str(exc))
+
+    config = record.workflow.config
+
+    # Phase sequence based on current status
+    phase_order = [
+        WorkflowStatus.INIT,
+        WorkflowStatus.BRAINSTORMING,
+        WorkflowStatus.PLANNING,
+        WorkflowStatus.IMPLEMENTING,
+        WorkflowStatus.REVIEWING,
+        WorkflowStatus.CLOSING,
+    ]
+
+    status = record.workflow.status
+    if status == WorkflowStatus.DONE:
+        print(f"✓ {args.workflow} is already done.")
+        return
+    if status == WorkflowStatus.FAILED:
+        _error_exit(f"Workflow '{args.workflow}' is in failed state. Use wf recover first.")
+
+    # Walk through phases starting from current status
+    try:
+        # Brainstorm phase
+        if status in (WorkflowStatus.INIT,):
+            automation = config.automation.brainstorm
+            print(f"[brainstorm] {automation.value}...")
+            args.no_tmux = automation == AutomationLevel.AUTOMATIC or getattr(args, 'no_tmux', False)
+            _cmd_brainstorm(args)
+            record = load_record(args.workflow, cwd)
+            status = record.workflow.status
+            if status == WorkflowStatus.INIT:
+                _error_exit("Brainstorm did not produce results. Run wf brainstorm manually.")
+
+        # Plan phase
+        if status in (WorkflowStatus.PLANNING,):
+            automation = config.automation.plan
+            print(f"[plan] {automation.value}...")
+            args.no_tmux = automation == AutomationLevel.AUTOMATIC or getattr(args, 'no_tmux', False)
+            _cmd_plan(args)
+            record = load_record(args.workflow, cwd)
+            status = record.workflow.status
+            if status == WorkflowStatus.PLANNING:
+                _error_exit("Planning did not produce a plan. Run wf plan manually.")
+
+        # Execute phase
+        if status in (WorkflowStatus.IMPLEMENTING,):
+            print(f"[execute] running tasks...")
+            _cmd_execute(args)
+            record = load_record(args.workflow, cwd)
+            status = record.workflow.status
+
+        # Close phase
+        if status in (WorkflowStatus.REVIEWING, WorkflowStatus.CLOSING):
+            print(f"[close] merging...")
+            _cmd_close(args)
+            record = load_record(args.workflow, cwd)
+            status = record.workflow.status
+
+        if status == WorkflowStatus.DONE:
+            print(f"\n✓ {args.workflow} complete.")
+        else:
+            print(f"\n{args.workflow} stopped at status: {status.value}")
+
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _error_exit(str(exc))
+
+
+# ---------------------------------------------------------------------------
+# CLI handler: wf help
+# ---------------------------------------------------------------------------
+
+def _cmd_help(args):
     """Delegate to the agent-friendly help system."""
+    from wflib.help import help_command
     help_command([args.topic] if args.topic else [])
 
+
+# ---------------------------------------------------------------------------
+# Build parser
+# ---------------------------------------------------------------------------
 
 def build_parser():
     """Build the complete argparse parser with all subcommands and flags."""
@@ -67,7 +1370,7 @@ def build_parser():
                         help="Work directly in the main repo")
     p_init.add_argument("--set", action="append", dest="set_overrides", metavar="KEY=VALUE",
                         help="Override config for this workflow (repeatable)")
-    p_init.set_defaults(func=_not_implemented)
+    p_init.set_defaults(func=_cmd_init)
 
     # --- wf run <workflow> ---
     p_run = subparsers.add_parser("run", help="Run the full workflow lifecycle")
@@ -85,7 +1388,7 @@ def build_parser():
                        help="Override auto-close delay (ephemeral)")
     p_run.add_argument("--auto-review", action="store_true",
                        help="Override auto-review setting (ephemeral)")
-    p_run.set_defaults(func=_not_implemented)
+    p_run.set_defaults(func=_cmd_run)
 
     # --- wf brainstorm <workflow> ---
     p_brainstorm = subparsers.add_parser("brainstorm", help="Run brainstorm phase")
@@ -97,7 +1400,7 @@ def build_parser():
                               help="Override tmux usage (ephemeral)")
     p_brainstorm.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
                               help="Override auto-close delay (ephemeral)")
-    p_brainstorm.set_defaults(func=_not_implemented)
+    p_brainstorm.set_defaults(func=_cmd_brainstorm)
 
     # --- wf plan <workflow> ---
     p_plan = subparsers.add_parser("plan", help="Run planning phase")
@@ -109,7 +1412,7 @@ def build_parser():
                         help="Override tmux usage (ephemeral)")
     p_plan.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
                         help="Override auto-close delay (ephemeral)")
-    p_plan.set_defaults(func=_not_implemented)
+    p_plan.set_defaults(func=_cmd_plan)
 
     # --- wf record-brainstorm <workflow> ---
     p_record_brainstorm = subparsers.add_parser("record-brainstorm",
@@ -118,7 +1421,7 @@ def build_parser():
     p_record_brainstorm.add_argument("--cwd", default=".",
                                      help="Project directory (default: .)")
     p_record_brainstorm.add_argument("--usage", help="Usage data JSON from calling session")
-    p_record_brainstorm.set_defaults(func=_not_implemented)
+    p_record_brainstorm.set_defaults(func=_cmd_record_brainstorm)
 
     # --- wf submit-plan <workflow> ---
     p_submit_plan = subparsers.add_parser("submit-plan",
@@ -126,7 +1429,7 @@ def build_parser():
     p_submit_plan.add_argument("workflow", help="Workflow name")
     p_submit_plan.add_argument("--cwd", default=".", help="Project directory (default: .)")
     p_submit_plan.add_argument("--usage", help="Usage data JSON from calling session")
-    p_submit_plan.set_defaults(func=_not_implemented)
+    p_submit_plan.set_defaults(func=_cmd_submit_plan)
 
     # --- wf execute <workflow> ---
     p_execute = subparsers.add_parser("execute", help="Execute all pending tasks")
@@ -147,7 +1450,7 @@ def build_parser():
                            help="Override auto-review setting (ephemeral)")
     p_execute.add_argument("--review-model", metavar="MODEL",
                            help="Override model for review subagent (ephemeral)")
-    p_execute.set_defaults(func=_not_implemented)
+    p_execute.set_defaults(func=_cmd_execute)
 
     # --- wf execute-task <workflow> <task-id> ---
     p_execute_task = subparsers.add_parser("execute-task",
@@ -160,7 +1463,7 @@ def build_parser():
                                 help="Override tmux usage (ephemeral)")
     p_execute_task.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
                                 help="Override auto-close delay (ephemeral)")
-    p_execute_task.set_defaults(func=_not_implemented)
+    p_execute_task.set_defaults(func=_cmd_execute_task)
 
     # --- wf review <workflow> ---
     p_review = subparsers.add_parser("review", help="Run code review")
@@ -176,7 +1479,7 @@ def build_parser():
                           help="Override tmux usage (ephemeral)")
     p_review.add_argument("--auto-close", nargs="?", const=0, type=int, metavar="SECONDS",
                           help="Override auto-close delay (ephemeral)")
-    p_review.set_defaults(func=_not_implemented)
+    p_review.set_defaults(func=_cmd_review)
 
     # --- wf auto-review <workflow> ---
     p_auto_review = subparsers.add_parser("auto-review",
@@ -194,7 +1497,7 @@ def build_parser():
                                help="Override model for fixup tasks (ephemeral)")
     p_auto_review.add_argument("--fixup-concurrency", type=int, metavar="N",
                                help="Override max parallel fixup tasks (ephemeral)")
-    p_auto_review.set_defaults(func=_not_implemented)
+    p_auto_review.set_defaults(func=_cmd_auto_review)
 
     # --- wf close <workflow> ---
     p_close = subparsers.add_parser("close", help="Close the workflow")
@@ -202,7 +1505,7 @@ def build_parser():
     p_close.add_argument("--cwd", default=".", help="Working directory (default: .)")
     p_close.add_argument("--model",
                          help="Override model for conflict resolution (ephemeral)")
-    p_close.set_defaults(func=_not_implemented)
+    p_close.set_defaults(func=_cmd_close)
 
     # --- wf status <workflow> ---
     p_status = subparsers.add_parser("status", help="Show workflow status")
@@ -210,7 +1513,7 @@ def build_parser():
     p_status.add_argument("--cwd", default=".", help="Working directory (default: .)")
     p_status.add_argument("--json", action="store_true",
                           help="Output raw record JSON")
-    p_status.set_defaults(func=_not_implemented)
+    p_status.set_defaults(func=_cmd_status)
 
     # --- wf list ---
     p_list = subparsers.add_parser("list", help="List workflows")
@@ -218,7 +1521,7 @@ def build_parser():
     p_list.add_argument("--all", action="store_true",
                         help="Include completed/failed workflows")
     p_list.add_argument("--json", action="store_true", help="Output raw JSON array")
-    p_list.set_defaults(func=_not_implemented)
+    p_list.set_defaults(func=_cmd_list)
 
     # --- wf history ---
     p_history = subparsers.add_parser("history", help="Show workflow history")
@@ -227,37 +1530,37 @@ def build_parser():
                            help="Output raw JSON array")
     p_history.add_argument("--limit", type=int, metavar="N", default=20,
                            help="Max entries (default: 20)")
-    p_history.set_defaults(func=_not_implemented)
+    p_history.set_defaults(func=_cmd_history)
 
     # --- wf render <workflow> ---
     p_render = subparsers.add_parser("render", help="Render workflow as markdown")
     p_render.add_argument("workflow", help="Workflow name")
     p_render.add_argument("--cwd", default=".", help="Working directory (default: .)")
-    p_render.set_defaults(func=_not_implemented)
+    p_render.set_defaults(func=_cmd_render)
 
     # --- wf validate <file> ---
     p_validate = subparsers.add_parser("validate", help="Validate a plan JSON file")
     p_validate.add_argument("file", help="Path to plan JSON file")
-    p_validate.set_defaults(func=_not_implemented)
+    p_validate.set_defaults(func=_cmd_validate)
 
     # --- wf brief <workflow> <task-id> ---
     p_brief = subparsers.add_parser("brief", help="Generate a task brief")
     p_brief.add_argument("workflow", help="Workflow name")
     p_brief.add_argument("task_id", metavar="task-id", help="Task ID")
     p_brief.add_argument("--cwd", default=".", help="Working directory (default: .)")
-    p_brief.set_defaults(func=_not_implemented)
+    p_brief.set_defaults(func=_cmd_brief)
 
     # --- wf recover <workflow> ---
     p_recover = subparsers.add_parser("recover", help="Clean up after a crash")
     p_recover.add_argument("workflow", help="Workflow name")
     p_recover.add_argument("--cwd", default=".", help="Working directory (default: .)")
-    p_recover.set_defaults(func=_not_implemented)
+    p_recover.set_defaults(func=_cmd_recover)
 
     # --- wf schema ---
     p_schema = subparsers.add_parser("schema", help="Output JSON Schema")
     p_schema.add_argument("--component", metavar="NAME",
                           help="Output just a specific $def component")
-    p_schema.set_defaults(func=_not_implemented)
+    p_schema.set_defaults(func=_cmd_schema)
 
     # --- wf config ---
     p_config = subparsers.add_parser("config", help="Manage configuration")
@@ -267,12 +1570,12 @@ def build_parser():
     p_config_list.add_argument("--cwd", default=".", help="Working directory (default: .)")
     p_config_list.add_argument("--show-origin", action="store_true",
                                help="Annotate each value with its source level")
-    p_config_list.set_defaults(func=_not_implemented)
+    p_config_list.set_defaults(func=_cmd_config_list)
 
     p_config_get = config_subparsers.add_parser("get", help="Show a single config value")
     p_config_get.add_argument("key", help="Dotted config key (e.g. model.plan)")
     p_config_get.add_argument("--cwd", default=".", help="Working directory (default: .)")
-    p_config_get.set_defaults(func=_not_implemented)
+    p_config_get.set_defaults(func=_cmd_config_get)
 
     p_config_set = config_subparsers.add_parser("set", help="Set a config value")
     p_config_set.add_argument("assignment", metavar="KEY=VALUE",
@@ -282,9 +1585,9 @@ def build_parser():
                               help="Write to ~/.config/wf/config.toml (default)")
     p_config_set.add_argument("--project", action="store_true",
                               help="Write to .wf/config.toml")
-    p_config_set.set_defaults(func=_not_implemented)
+    p_config_set.set_defaults(func=_cmd_config_set)
 
-    p_config.set_defaults(func=_not_implemented)
+    p_config.set_defaults(func=_cmd_config)
 
     # --- wf template ---
     p_template = subparsers.add_parser("template", help="Manage templates")
@@ -294,14 +1597,14 @@ def build_parser():
                                                       help="List available templates")
     p_template_list.add_argument("--cwd", default=".",
                                  help="Working directory (default: .)")
-    p_template_list.set_defaults(func=_not_implemented)
+    p_template_list.set_defaults(func=_cmd_template_list)
 
     p_template_show = template_subparsers.add_parser("show",
                                                       help="Show a template")
     p_template_show.add_argument("name", help="Template name")
     p_template_show.add_argument("--cwd", default=".",
                                  help="Working directory (default: .)")
-    p_template_show.set_defaults(func=_not_implemented)
+    p_template_show.set_defaults(func=_cmd_template_show)
 
     p_template_render = template_subparsers.add_parser("render",
                                                         help="Render a template")
@@ -309,21 +1612,21 @@ def build_parser():
     p_template_render.add_argument("args", nargs="*", help="Template arguments")
     p_template_render.add_argument("--cwd", default=".",
                                    help="Working directory (default: .)")
-    p_template_render.set_defaults(func=_not_implemented)
+    p_template_render.set_defaults(func=_cmd_template_render)
 
-    p_template.set_defaults(func=_not_implemented)
+    p_template.set_defaults(func=_cmd_template)
 
     # --- wf completions <shell> ---
     p_completions = subparsers.add_parser("completions",
                                           help="Generate shell completion script")
     p_completions.add_argument("shell", choices=["bash", "zsh", "fish"],
                                help="Shell type")
-    p_completions.set_defaults(func=_not_implemented)
+    p_completions.set_defaults(func=_cmd_completions)
 
     # --- wf help [topic] ---
     p_help = subparsers.add_parser("help", help="Show help reference")
     p_help.add_argument("topic", nargs="?", help="Help topic (optional)")
-    p_help.set_defaults(func=_help_entry)
+    p_help.set_defaults(func=_cmd_help)
 
     return parser
 
@@ -334,6 +1637,7 @@ def main():
 
     if args.command is None:
         # wf with no arguments should show help topics
+        from wflib.help import help_command
         help_command(["topics"])
         return
 
