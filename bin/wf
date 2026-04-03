@@ -1031,11 +1031,8 @@ def _cmd_close(args):
 # ---------------------------------------------------------------------------
 
 def _cmd_recover(args):
-    from wflib.record import load_record, save_record, record_event, clear_active_resource
-    from wflib.types import TaskStatus, ImplementationEventType
-    from wflib.worktree import cleanup_worktree, WorktreeInfo
-    from wflib.git import get_current_branch
-    from wflib.runner import _read_agent_results
+    from wflib.record import load_record, save_record
+    from wflib.scheduler import recover_running_tasks
 
     cwd = os.path.abspath(args.cwd)
 
@@ -1046,67 +1043,13 @@ def _cmd_recover(args):
     except ValueError as exc:
         _error_exit(str(exc))
 
-    if record.implementation is None:
-        print(json.dumps({"cleanedWorktrees": [], "resetTasks": [], "incorporatedResults": []}))
-        return
-
-    impl = record.implementation
-    cleaned_worktrees = []
-    reset_tasks = []
-    incorporated_results = []
-
-    # Check .sessions/ for orphaned results
-    sessions_dir = os.path.join(cwd, "docs", "workflows", ".sessions", args.workflow)
-
-    for task_id, result in impl.tasks.items():
-        if result.status != TaskStatus.RUNNING:
-            continue
-
-        # Check for orphaned results.json
-        if os.path.isdir(sessions_dir):
-            results_file = os.path.join(sessions_dir, f"{task_id}.results.json")
-            if os.path.isfile(results_file):
-                try:
-                    agent_result = _read_agent_results(results_file)
-                    result.summary = agent_result.summary
-                    result.notes = agent_result.notes
-                    result.usage = agent_result.usage
-                    incorporated_results.append(task_id)
-                    os.remove(results_file)
-                except Exception:
-                    pass
-
-        # Clean up orphaned worktree
-        wt_path = impl.active_resources.get(task_id)
-        if wt_path and os.path.isdir(wt_path):
-            try:
-                branch = f"wf-{record.workflow.id}-{task_id}"
-                main_branch = get_current_branch(cwd)
-                wt = WorktreeInfo(path=wt_path, branch=branch, main_branch=main_branch)
-                cleanup_worktree(cwd, wt)
-                cleaned_worktrees.append(wt_path)
-            except Exception:
-                pass
-
-        # Reset to pending
-        result.status = TaskStatus.PENDING
-        result.started_at = None
-        clear_active_resource(record, task_id)
-        reset_tasks.append(task_id)
-
-        record_event(
-            record,
-            ImplementationEventType.CRASH_RECOVERY,
-            task=task_id,
-            detail="Reset running task to pending after crash recovery",
-        )
-
+    summary = recover_running_tasks(record, cwd)
     save_record(record, cwd)
 
     print(json.dumps({
-        "cleanedWorktrees": cleaned_worktrees,
-        "resetTasks": reset_tasks,
-        "incorporatedResults": incorporated_results,
+        "cleanedWorktrees": summary["cleaned_worktrees"],
+        "resetTasks": summary["reset_tasks"],
+        "incorporatedResults": summary["incorporated_results"],
     }))
 
 

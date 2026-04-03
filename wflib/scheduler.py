@@ -144,6 +144,100 @@ def resolve_task_model(
     return (None, "default")
 
 
+def recover_running_tasks(
+    record: WorkflowRecord,
+    cwd: str,
+) -> dict:
+    """Recover from a crashed execution.
+
+    Iterates tasks in RUNNING state and:
+    - Checks for orphaned results.json files and incorporates results (best-effort)
+    - Deletes orphaned results.json files after incorporation
+    - Cleans up orphaned worktrees
+    - Resets RUNNING tasks to PENDING
+    - Records CRASH_RECOVERY events
+
+    Returns a summary dict::
+
+        {'cleaned_worktrees': [...], 'reset_tasks': [...], 'incorporated_results': [...]}
+    """
+    import os as _os
+    from wflib import record as record_mod
+    from wflib.runner import _read_agent_results
+    from wflib.worktree import cleanup_worktree, WorktreeInfo
+
+    if record.implementation is None:
+        return {"cleaned_worktrees": [], "reset_tasks": [], "incorporated_results": []}
+
+    impl = record.implementation
+    cleaned_worktrees: list[str] = []
+    reset_tasks: list[str] = []
+    incorporated_results: list[str] = []
+
+    sessions_dir = _os.path.join(
+        _os.path.abspath(cwd), record_mod.WORKFLOWS_DIR,
+        ".sessions", record.workflow.name,
+    )
+
+    for task_id, result in impl.tasks.items():
+        if result.status != TaskStatus.RUNNING:
+            continue
+
+        # Check for orphaned results.json and incorporate if present
+        if _os.path.isdir(sessions_dir):
+            orphaned_results_path = _os.path.join(
+                sessions_dir, f"{task_id}.results.json"
+            )
+            if _os.path.isfile(orphaned_results_path):
+                try:
+                    agent_result = _read_agent_results(orphaned_results_path)
+                    if agent_result.summary:
+                        result.summary = agent_result.summary
+                    if agent_result.notes:
+                        result.notes = agent_result.notes
+                    if agent_result.usage:
+                        result.usage = agent_result.usage
+                    incorporated_results.append(task_id)
+                    _os.remove(orphaned_results_path)
+                except Exception:
+                    pass  # Best-effort incorporation
+
+        # Clean up orphaned worktree if recorded
+        wt_path = impl.active_resources.get(task_id)
+        if wt_path:
+            try:
+                branch = f"wf-{record.workflow.id}-{task_id}"
+                from wflib.git import get_current_branch
+                try:
+                    main_branch = get_current_branch(cwd)
+                except RuntimeError:
+                    main_branch = "main"
+                wt = WorktreeInfo(path=wt_path, branch=branch, main_branch=main_branch)
+                cleanup_worktree(cwd, wt)
+                cleaned_worktrees.append(wt_path)
+            except Exception:
+                pass  # Best-effort cleanup
+            record_mod.clear_active_resource(record, task_id)
+
+        # Reset to pending
+        result.status = TaskStatus.PENDING
+        result.started_at = None
+        reset_tasks.append(task_id)
+
+        record_mod.record_event(
+            record,
+            ImplementationEventType.CRASH_RECOVERY,
+            task=task_id,
+            detail="Reset running task to pending after crash recovery",
+        )
+
+    return {
+        "cleaned_worktrees": cleaned_worktrees,
+        "reset_tasks": reset_tasks,
+        "incorporated_results": incorporated_results,
+    }
+
+
 def _build_statuses(impl: ImplementationRecord) -> dict[str, TaskStatus]:
     """Extract current task statuses from an implementation record."""
     return {
@@ -210,7 +304,7 @@ async def execute_plan(
     from wflib import record as record_mod
     from wflib.config import apply_cli_overrides
     from wflib.git import get_head_full
-    from wflib.worktree import commit_or_amend_workflow_files, cleanup_worktree, WorktreeInfo
+    from wflib.worktree import commit_or_amend_workflow_files
     from wflib.task_executor import run_task
 
     # Apply CLI overrides to get effective config
@@ -235,59 +329,8 @@ async def execute_plan(
     impl = record.implementation
 
     # --- Crash recovery ---
-    # Find tasks that were 'running' (from a previous crashed execution)
-    # and reset them to 'pending'. Clean up any orphaned worktrees.
-    # Also check for orphaned results files from agents that finished
-    # but whose results weren't incorporated before the scheduler crashed.
-    import os as _os
-    from wflib.runner import _read_agent_results
-
-    sessions_dir = _os.path.join(
-        _os.path.abspath(cwd), record_mod.WORKFLOWS_DIR,
-        ".sessions", record.workflow.name,
-    )
-
-    for task_id, result in impl.tasks.items():
-        if result.status == TaskStatus.RUNNING:
-            # Check for orphaned results.json before resetting
-            orphaned_results_path = _os.path.join(
-                sessions_dir, f"{task_id}.results.json"
-            )
-            if _os.path.isfile(orphaned_results_path):
-                try:
-                    agent_result = _read_agent_results(orphaned_results_path)
-                    if agent_result.summary:
-                        result.summary = agent_result.summary
-                    if agent_result.notes:
-                        result.notes = agent_result.notes
-                    if agent_result.usage:
-                        result.usage = agent_result.usage
-                except Exception:
-                    pass  # Best-effort incorporation
-
-            result.status = TaskStatus.PENDING
-            result.started_at = None
-            # Clean up orphaned worktree if recorded
-            wt_path = impl.active_resources.get(task_id)
-            if wt_path:
-                branch = f"wf-{record.workflow.id}-{task_id}"
-                from wflib.git import get_current_branch
-                try:
-                    main_branch = get_current_branch(cwd)
-                except RuntimeError:
-                    main_branch = "main"
-                wt = WorktreeInfo(path=wt_path, branch=branch, main_branch=main_branch)
-                try:
-                    cleanup_worktree(cwd, wt)
-                except Exception:
-                    pass  # Best-effort cleanup
-                impl.active_resources.pop(task_id, None)
-            record_mod.record_event(
-                record,
-                ImplementationEventType.CRASH_RECOVERY,
-                task=task_id,
-                detail="Reset running task to pending after crash recovery",
-            )
+    # Reset any RUNNING tasks from a previous crashed execution.
+    recover_running_tasks(record, cwd)
 
     # Auto-commit record before starting
     record_mod.save_record(record, cwd)
