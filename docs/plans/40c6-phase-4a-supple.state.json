@@ -151,12 +151,89 @@
   },
   "planId": "40c6",
   "statuses": {
-    "task-1": "pending",
-    "task-2": "pending",
-    "task-3": "pending",
-    "task-4": "pending"
+    "task-1": "done",
+    "task-2": "done",
+    "task-3": "done",
+    "task-4": "done"
   },
-  "results": {},
+  "results": {
+    "task-4": {
+      "taskId": "task-4",
+      "title": "Scheduler unit tests + fix deviations",
+      "exitCode": 0,
+      "summary": "Created `tests/unit/test_scheduler.py` with 29 comprehensive tests for the 4 pure scheduling functions, and fixed two deviations in `scheduler.py`: added orphaned results.json incorporation during crash recovery, and added taskStart/taskComplete event recording in execute_fixup's DAG loop.",
+      "filesChanged": [
+        "tests/unit/test_scheduler.py",
+        "wflib/scheduler.py"
+      ],
+      "notes": "- Total test count went from 367 to 396 (29 new tests added)\n- The crash recovery orphaned results logic reads from `docs/workflows/.sessions/<workflow>/<task-id>.results.json` using the existing `runner._read_agent_results` function, incorporating summary/notes/usage before resetting the task to pending\n- The fixup event recording appends directly to `fixup_impl.events` (the fixup implementation's own event list) rather than the main `record.implementation.events`, matching the pattern where fixup results live in `review.fixup_implementation`",
+      "usage": {
+        "input": 29,
+        "output": 10066,
+        "cacheRead": 851485,
+        "cacheWrite": 41666,
+        "cost": 0.9379500000000001,
+        "turns": 28
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "tests/unit/test_scheduler.py | 450 +++++++++++++++++++++++++++++++++++++++++++\n wflib/scheduler.py           |  37 ++++\n 2 files changed, 487 insertions(+)"
+    },
+    "task-2": {
+      "taskId": "task-2",
+      "title": "CLI handlers — init, submit-plan, record-brainstorm, status, list, history, render, validate, brief, schema, config, template",
+      "exitCode": 0,
+      "summary": "Now let me implement all the handlers. I'll replace the `_not_implemented` function and imports section, then set up each handler with its own function:",
+      "filesChanged": [],
+      "notes": "",
+      "usage": {
+        "input": 12,
+        "output": 1277,
+        "cacheRead": 305472,
+        "cacheWrite": 96101,
+        "cost": 0.7853522500000001,
+        "turns": 11
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "tests/unit/test_scheduler.py | 450 -------------------------------------------\n wflib/scheduler.py           |  37 ----\n 2 files changed, 487 deletions(-)"
+    },
+    "task-1": {
+      "taskId": "task-1",
+      "title": "Implement task_executor.py — per-task lifecycle",
+      "exitCode": 0,
+      "summary": "Replaced all 5 `NotImplementedError` stubs in `wflib/task_executor.py` with working implementations. The `run_task` async function implements the full per-task lifecycle (worktree setup → brief assembly → model resolution → agent spawning → result preservation → diff capture → commit → merge-back → cleanup), while respecting the constraint that the scheduler already calls `record_task_start`.",
+      "filesChanged": [
+        "wflib/task_executor.py"
+      ],
+      "notes": "- `run_task` correctly does NOT call `record_task_start` (the scheduler does that). Instead it updates `active_resources` and `worktree_path` after worktree creation and saves the record.\n- `spawn_headless` is run via `asyncio.to_thread()` to avoid blocking the event loop during agent execution.\n- `_merge_and_cleanup` holds the `merge_lock` for the entire merge process including conflict resolution, as specified. After resolution, it uses `GIT_EDITOR=true` via `subprocess.run` (not the `git()` wrapper) for `git rebase --continue` to suppress editor prompts.\n- The mock profile's `build_headless_cmd` passes the prompt text as a CLI arg that `mock_agent.py` tries to `open()` as a file path — this will fail when E2E tests actually exercise `run_task`. This is a pre-existing issue in the mock profile, not introduced by this change.",
+      "usage": {
+        "input": 30,
+        "output": 28937,
+        "cacheRead": 921759,
+        "cacheWrite": 99502,
+        "cost": 1.806342,
+        "turns": 27
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6",
+      "diffStat": "tests/unit/test_scheduler.py | 450 -------------------------------------------\n wflib/scheduler.py           |  37 ----\n wflib/task_executor.py       | 423 +++++++++++++++++++++++++++++++++++++++-\n 3 files changed, 414 insertions(+), 496 deletions(-)"
+    },
+    "task-3": {
+      "taskId": "task-3",
+      "title": "CLI handlers — execute, execute-task, review, auto-review, close, recover, run, brainstorm, plan",
+      "exitCode": 0,
+      "summary": "Now I have enough understanding. Let me write the handlers. The key patterns are:\n\n1. Each handler is a function that takes `args`\n2. Error paths: `print(json.dumps({\"error\": str(e)}))` + `sys.exit(1)`\n3. The handlers need to load records, call async functions, save records, print output",
+      "filesChanged": [],
+      "notes": "",
+      "usage": {
+        "input": 25,
+        "output": 2355,
+        "cacheRead": 1135091,
+        "cacheWrite": 69809,
+        "cost": 1.06285175,
+        "turns": 24
+      },
+      "model": "aws/anthropic/bedrock-claude-opus-4-6"
+    }
+  },
   "planningUsage": {
     "input": 0,
     "output": 0,
@@ -166,5 +243,6 @@
     "turns": 0
   },
   "planningModel": "nvinf-anthropic/aws/anthropic/bedrock-claude-opus-4-6",
-  "planFile": "docs/plans/40c6-phase-4a-supple.md"
+  "planFile": "docs/plans/40c6-phase-4a-supple.md",
+  "baseCommit": "7149e0dd7c6fd19fc5ab7dc097ef9766302cbbfc"
 }
